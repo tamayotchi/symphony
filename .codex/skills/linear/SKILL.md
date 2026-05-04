@@ -2,17 +2,19 @@
 name: linear
 description: |
   Use Symphony's `linear_graphql` client tool for raw Linear GraphQL
-  operations such as comment editing and upload flows.
+  operations such as comment editing and upload flows during Symphony or Pi
+  sessions.
 ---
 
 # Linear GraphQL
 
-Use this skill for raw Linear GraphQL work during Symphony app-server sessions.
+Use this skill for raw Linear GraphQL work during Symphony app-server sessions or Pi sessions
+that expose the bundled `linear_graphql` worker extension.
 
 ## Primary tool
 
-Use the `linear_graphql` client tool exposed by Symphony's app-server session.
-It reuses Symphony's configured Linear auth for the session.
+Use the `linear_graphql` client tool exposed by Symphony's app-server session or Pi's bundled
+worker extension. It reuses the session's configured Linear auth.
 
 Tool input:
 
@@ -71,12 +73,12 @@ query CommentCreateInputShape {
 
 ## Common workflows
 
-### Query an issue by key, identifier, or id
+### Query an issue by key or internal id
 
 Use these progressively:
 
-- Start with `issue(id: $key)` when you have a ticket key such as `MT-686`.
-- Fall back to `issues(filter: ...)` when you need identifier search semantics.
+- Start with `issue(id: $key)` when you have a ticket key such as `MT-686` or `TAM-5`.
+- If you only have the team key and issue number separately, use `issues(filter: ...)` with both.
 - Once you have the internal issue id, prefer `issue(id: $id)` for narrower reads.
 
 Lookup by issue key:
@@ -111,11 +113,11 @@ query IssueByKey($key: String!) {
 }
 ```
 
-Lookup by identifier filter:
+Lookup by team key + issue number:
 
 ```graphql
-query IssueByIdentifier($identifier: String!) {
-  issues(filter: { identifier: { eq: $identifier } }, first: 1) {
+query IssueByTeamAndNumber($teamKey: String!, $number: Float!) {
+  issues(filter: { team: { key: { eq: $teamKey } }, number: { eq: $number } }, first: 1) {
     nodes {
       id
       identifier
@@ -378,7 +380,7 @@ mutation FileUpload(
 - Use `linear_graphql` for comment edits, uploads, and ad-hoc Linear API
   queries.
 - Prefer the narrowest issue lookup that matches what you already know:
-  key -> identifier search -> internal id.
+  key -> team key + issue number -> internal id.
 - For state transitions, fetch team states first and use the exact `stateId`
   instead of hardcoding names inside mutations.
 - Prefer `attachmentLinkGitHubPR` over a generic URL attachment when linking a

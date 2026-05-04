@@ -10,6 +10,12 @@ _In this [demo video](.github/media/symphony-demo.mp4), Symphony monitors a Line
 > [!WARNING]
 > Symphony is a low-key engineering preview for testing in trusted environments.
 
+## Tested with Pi
+
+Want a quick, concrete answer for whether this repo works well with Pi? See
+[`PI_PROOF.md`](PI_PROOF.md) for the exact tool contract, tests, workflow docs,
+and session proof points used by this repository's Pi-driven Linear workflow.
+
 ## Running Symphony
 
 ### Requirements
