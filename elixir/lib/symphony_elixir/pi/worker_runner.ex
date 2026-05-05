@@ -1,0 +1,205 @@
+defmodule SymphonyElixir.Pi.WorkerRunner do
+  @moduledoc """
+  Pi-backed replacement for the Codex app-server worker runtime.
+
+  The public interface intentionally mirrors `SymphonyElixir.Codex.AppServer`
+  closely so `AgentRunner` can switch runtimes with minimal change.
+  """
+
+  require Logger
+
+  alias SymphonyElixir.Config
+  alias SymphonyElixir.Pi.{EventMapper, RpcClient}
+
+  @heartbeat_interval_ms 30_000
+
+  @spec start_session(Path.t(), keyword()) :: {:ok, RpcClient.session()} | {:error, term()}
+  def start_session(workspace, opts \\ []) do
+    RpcClient.start_session(workspace, opts)
+  end
+
+  @spec run_turn(RpcClient.session(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def run_turn(session, prompt, issue, opts \\ []) do
+    on_message = Keyword.get(opts, :on_message, &default_on_message/1)
+    turn_number = Keyword.get(opts, :turn_number, 1)
+    turn_session_id = turn_session_id(session.base_session_id, turn_number)
+
+    {resolved_model, resolved_thinking} = Config.resolve_pi_model_for_issue(issue)
+
+    turn_config = %{name: session_name(issue), model: resolved_model, thinking_level: resolved_thinking}
+
+    with :ok <- RpcClient.configure_turn(session, turn_config),
+         {:ok, _prompt_id} <- RpcClient.start_prompt(session, prompt) do
+      emit(on_message, EventMapper.session_started(turn_session_id, session.metadata))
+      await_turn_completion(session, turn_session_id, on_message, issue)
+    end
+  end
+
+  @spec stop_session(RpcClient.session()) :: :ok
+  def stop_session(session) do
+    RpcClient.stop_session(session)
+  end
+
+  defp await_turn_completion(session, turn_session_id, on_message, issue) do
+    timeout_ms = issue_turn_timeout_ms()
+    heartbeat_ms = min(@heartbeat_interval_ms, timeout_ms)
+    started_at = System.monotonic_time(:millisecond)
+    receive_loop(session, turn_session_id, on_message, issue, timeout_ms, "", started_at, heartbeat_ms)
+  end
+
+  defp receive_loop(session, turn_session_id, on_message, issue, timeout_ms, pending_line, started_at, heartbeat_ms) do
+    case RpcClient.receive_message(session, heartbeat_ms, pending_line) do
+      {:ok, {:response, _response}, next_pending_line} ->
+        emit(on_message, EventMapper.heartbeat(turn_session_id, session.metadata))
+
+        receive_loop(
+          session,
+          turn_session_id,
+          on_message,
+          issue,
+          timeout_ms,
+          next_pending_line,
+          started_at,
+          heartbeat_ms
+        )
+
+      {:ok, {:extension_ui_request, payload}, next_pending_line} ->
+        handle_extension_ui_request(session, payload, turn_session_id, on_message)
+
+        receive_loop(
+          session,
+          turn_session_id,
+          on_message,
+          issue,
+          timeout_ms,
+          next_pending_line,
+          started_at,
+          heartbeat_ms
+        )
+
+      {:ok, {:event, %{"type" => "agent_end"} = payload}, _next_pending_line} ->
+        handle_agent_end(session, payload, turn_session_id, on_message, issue)
+
+      {:ok, {:event, payload}, next_pending_line} ->
+        emit(
+          on_message,
+          EventMapper.rpc_event(payload, Jason.encode!(payload), turn_session_id, session.metadata)
+        )
+
+        receive_loop(
+          session,
+          turn_session_id,
+          on_message,
+          issue,
+          timeout_ms,
+          next_pending_line,
+          started_at,
+          heartbeat_ms
+        )
+
+      {:ok, {:malformed, raw}, next_pending_line} ->
+        emit(on_message, EventMapper.malformed(raw, turn_session_id, session.metadata))
+
+        receive_loop(
+          session,
+          turn_session_id,
+          on_message,
+          issue,
+          timeout_ms,
+          next_pending_line,
+          started_at,
+          heartbeat_ms
+        )
+
+      {:error, :timeout} ->
+        handle_heartbeat_timeout(
+          session,
+          turn_session_id,
+          on_message,
+          issue,
+          timeout_ms,
+          pending_line,
+          started_at,
+          heartbeat_ms
+        )
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp handle_extension_ui_request(session, payload, turn_session_id, on_message) do
+    :ok = RpcClient.auto_cancel_extension_request(session, payload)
+
+    emit(
+      on_message,
+      EventMapper.extension_ui_request(payload, Jason.encode!(payload), turn_session_id, session.metadata)
+    )
+  end
+
+  defp handle_agent_end(session, payload, turn_session_id, on_message, issue) do
+    emit(on_message, EventMapper.rpc_event(payload, Jason.encode!(payload), turn_session_id, session.metadata))
+
+    Logger.info("Pi worker turn completed for #{issue_context(issue)} session_id=#{turn_session_id} session_file=#{inspect(session.session_file)}")
+
+    {:ok,
+     %{
+       result: payload,
+       session_id: turn_session_id,
+       base_session_id: session.base_session_id,
+       session_file: session.session_file,
+       session_dir: session.session_dir,
+       workspace: session.workspace
+     }}
+  end
+
+  defp handle_heartbeat_timeout(session, turn_session_id, on_message, issue, timeout_ms, pending_line, started_at, heartbeat_ms) do
+    elapsed = System.monotonic_time(:millisecond) - started_at
+
+    if port_alive?(session) and elapsed < timeout_ms do
+      emit(on_message, EventMapper.heartbeat(turn_session_id, session.metadata))
+      receive_loop(session, turn_session_id, on_message, issue, timeout_ms, pending_line, started_at, heartbeat_ms)
+    else
+      :ok = maybe_abort(session)
+      {:error, :turn_timeout}
+    end
+  end
+
+  @dialyzer {:no_match, port_alive?: 1}
+  defp port_alive?(%{port: port}) when is_port(port), do: :erlang.port_info(port) != :undefined
+  defp port_alive?(_session), do: false
+
+  defp maybe_abort(session) do
+    case RpcClient.abort(session) do
+      :ok -> :ok
+      {:error, _reason} -> :ok
+    end
+  end
+
+  defp issue_turn_timeout_ms do
+    SymphonyElixir.Config.settings!().codex.turn_timeout_ms
+  end
+
+  defp turn_session_id(base_session_id, turn_number) when is_binary(base_session_id) and is_integer(turn_number) do
+    "#{base_session_id}-turn-#{turn_number}"
+  end
+
+  defp session_name(%{identifier: identifier, title: title}) when is_binary(identifier) and is_binary(title) do
+    "#{identifier}: #{title}"
+  end
+
+  defp session_name(%{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp session_name(_issue), do: "pi-worker-run"
+
+  defp issue_context(%{id: issue_id, identifier: identifier}) do
+    "issue_id=#{issue_id} issue_identifier=#{identifier}"
+  end
+
+  defp issue_context(_issue), do: "issue_id=n/a issue_identifier=n/a"
+
+  defp emit(on_message, message) when is_function(on_message, 1) and is_map(message) do
+    on_message.(message)
+  end
+
+  defp default_on_message(_message), do: :ok
+end

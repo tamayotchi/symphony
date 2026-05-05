@@ -5,7 +5,7 @@ defmodule SymphonyElixir.Config.Schema do
 
   import Ecto.Changeset
 
-  alias SymphonyElixir.PathSafety
+  alias SymphonyElixir.{PathSafety, Workflow}
 
   @primary_key false
 
@@ -107,6 +107,7 @@ defmodule SymphonyElixir.Config.Schema do
 
     @primary_key false
     embedded_schema do
+      field(:runtime, :string, default: "codex")
       field(:ssh_hosts, {:array, :string}, default: [])
       field(:max_concurrent_agents_per_host, :integer)
     end
@@ -114,7 +115,8 @@ defmodule SymphonyElixir.Config.Schema do
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:ssh_hosts, :max_concurrent_agents_per_host], empty_values: [])
+      |> cast(attrs, [:runtime, :ssh_hosts, :max_concurrent_agents_per_host], empty_values: [])
+      |> validate_inclusion(:runtime, ["codex", "pi"])
       |> validate_number(:max_concurrent_agents_per_host, greater_than: 0)
     end
   end
@@ -199,6 +201,74 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
+  defmodule PiModel do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @type t :: %__MODULE__{
+            provider: String.t() | nil,
+            model_id: String.t() | nil
+          }
+
+    @primary_key false
+    embedded_schema do
+      field(:provider, :string)
+      field(:model_id, :string)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:provider, :model_id], empty_values: [])
+      |> validate_required([:provider, :model_id])
+    end
+  end
+
+  defmodule Pi do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    alias SymphonyElixir.Config.Schema.PiModel
+
+    @primary_key false
+    embedded_schema do
+      field(:command, :string, default: "pi")
+      field(:response_timeout_ms, :integer, default: 60_000)
+      field(:session_dir_name, :string, default: ".pi-rpc-sessions")
+      field(:extension_paths, {:array, :string}, default: [])
+      field(:disable_extensions, :boolean, default: true)
+      field(:disable_themes, :boolean, default: true)
+      field(:thinking_level, :string)
+      embeds_one(:model, PiModel, on_replace: :update)
+    end
+
+    @thinking_levels ["off", "minimal", "low", "medium", "high", "xhigh"]
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(
+        attrs,
+        [
+          :command,
+          :response_timeout_ms,
+          :session_dir_name,
+          :extension_paths,
+          :disable_extensions,
+          :disable_themes,
+          :thinking_level
+        ],
+        empty_values: []
+      )
+      |> cast_embed(:model, with: &PiModel.changeset/2)
+      |> validate_required([:command, :session_dir_name])
+      |> validate_number(:response_timeout_ms, greater_than: 0)
+      |> validate_inclusion(:thinking_level, @thinking_levels)
+    end
+  end
+
   defmodule Hooks do
     @moduledoc false
     use Ecto.Schema
@@ -268,6 +338,7 @@ defmodule SymphonyElixir.Config.Schema do
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:pi, Pi, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
@@ -360,6 +431,7 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:worker, with: &Worker.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+    |> cast_embed(:pi, with: &Pi.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
@@ -383,7 +455,15 @@ defmodule SymphonyElixir.Config.Schema do
         turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy)
     }
 
-    %{settings | tracker: tracker, workspace: workspace, codex: codex}
+    pi = %{
+      settings.pi
+      | session_dir_name: normalize_pi_session_dir_name(settings.pi.session_dir_name),
+        extension_paths: normalize_pi_extension_paths(settings.pi.extension_paths),
+        thinking_level: normalize_pi_thinking_level(settings.pi.thinking_level),
+        model: normalize_pi_model(settings.pi.model)
+    }
+
+    %{settings | tracker: tracker, workspace: workspace, codex: codex, pi: pi}
   end
 
   defp normalize_keys(value) when is_map(value) do
@@ -478,6 +558,74 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp normalize_secret_value(_value), do: nil
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_optional_string(_value), do: nil
+
+  defp normalize_pi_session_dir_name(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" ->
+        ".pi-rpc-sessions"
+
+      Path.type(trimmed) == :absolute ->
+        ".pi-rpc-sessions"
+
+      String.contains?(trimmed, ["..", <<0>>]) ->
+        ".pi-rpc-sessions"
+
+      true ->
+        Path.basename(trimmed)
+    end
+  end
+
+  defp normalize_pi_session_dir_name(_value), do: ".pi-rpc-sessions"
+
+  defp normalize_pi_extension_paths(paths) when is_list(paths) do
+    workflow_dir = Workflow.workflow_file_path() |> Path.dirname() |> Path.expand()
+
+    paths
+    |> Enum.map(&normalize_pi_extension_path(&1, workflow_dir))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_pi_extension_paths(_paths), do: []
+
+  defp normalize_pi_extension_path(path, workflow_dir) when is_binary(path) do
+    trimmed = String.trim(path)
+
+    cond do
+      trimmed == "" -> nil
+      String.contains?(trimmed, <<0>>) -> nil
+      true -> Path.expand(trimmed, workflow_dir)
+    end
+  end
+
+  defp normalize_pi_extension_path(_path, _workflow_dir), do: nil
+
+  defp normalize_pi_model(%PiModel{} = model) do
+    provider = normalize_optional_string(model.provider)
+    model_id = normalize_optional_string(model.model_id)
+
+    if is_binary(provider) and is_binary(model_id) do
+      %{model | provider: provider, model_id: model_id}
+    else
+      nil
+    end
+  end
+
+  defp normalize_pi_model(_model), do: nil
+
+  defp normalize_pi_thinking_level(value) when is_binary(value), do: normalize_optional_string(value)
+  defp normalize_pi_thinking_level(_value), do: nil
 
   defp default_turn_sandbox_policy(workspace) do
     %{

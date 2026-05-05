@@ -26,6 +26,11 @@ defmodule SymphonyElixir.Config do
           turn_sandbox_policy: map()
         }
 
+  @type pi_model_settings :: %{
+          provider: String.t(),
+          model_id: String.t()
+        }
+
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
   def settings do
     case Workflow.current() do
@@ -114,7 +119,40 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec worker_runtime() :: :codex | :pi
+  def worker_runtime do
+    case settings!().worker.runtime do
+      "pi" -> :pi
+      _ -> :codex
+    end
+  end
+
+  @spec resolve_pi_model_for_issue(map()) :: {pi_model_settings() | nil, String.t() | nil}
+  def resolve_pi_model_for_issue(_issue) do
+    pi = settings!().pi
+
+    model =
+      case pi.model do
+        %{provider: provider, model_id: model_id}
+        when is_binary(provider) and is_binary(model_id) ->
+          %{provider: provider, model_id: model_id}
+
+        _ ->
+          nil
+      end
+
+    {model, pi.thinking_level}
+  end
+
   defp validate_semantics(settings) do
+    with :ok <- validate_tracker_kind(settings),
+         :ok <- validate_linear_requirements(settings),
+         :ok <- validate_worker_runtime_semantics(settings) do
+      :ok
+    end
+  end
+
+  defp validate_tracker_kind(settings) do
     cond do
       is_nil(settings.tracker.kind) ->
         {:error, :missing_tracker_kind}
@@ -122,16 +160,29 @@ defmodule SymphonyElixir.Config do
       settings.tracker.kind not in ["linear", "memory"] ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
 
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
-        {:error, :missing_linear_api_token}
-
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
-        {:error, :missing_linear_project_slug}
-
       true ->
         :ok
     end
   end
+
+  defp validate_linear_requirements(%{tracker: %{kind: "linear", api_key: api_key}})
+       when not is_binary(api_key) do
+    {:error, :missing_linear_api_token}
+  end
+
+  defp validate_linear_requirements(%{tracker: %{kind: "linear", project_slug: project_slug}})
+       when not is_binary(project_slug) do
+    {:error, :missing_linear_project_slug}
+  end
+
+  defp validate_linear_requirements(_settings), do: :ok
+
+  defp validate_worker_runtime_semantics(%{worker: %{runtime: "pi", ssh_hosts: ssh_hosts}})
+       when is_list(ssh_hosts) and ssh_hosts != [] do
+    {:error, {:invalid_workflow_config, "worker.ssh_hosts is not supported when worker.runtime is set to pi"}}
+  end
+
+  defp validate_worker_runtime_semantics(_settings), do: :ok
 
   defp format_config_error(reason) do
     case reason do
