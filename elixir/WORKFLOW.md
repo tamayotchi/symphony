@@ -1,7 +1,7 @@
 ---
 tracker:
   kind: linear
-  project_slug: "symphony-0c79b11b75ea"
+  project_slug: "tamayotchi-ad2597898bcc"
   active_states:
     - Todo
     - In Progress
@@ -17,9 +17,11 @@ polling:
   interval_ms: 5000
 workspace:
   root: ~/code/symphony-workspaces
+worker:
+  runtime: pi
 hooks:
   after_create: |
-    git clone --depth 1 https://github.com/openai/symphony .
+    git clone --depth 1 https://github.com/tamayotchi/symphony .
     if command -v mise >/dev/null 2>&1; then
       cd elixir && mise trust && mise exec -- mix deps.get
     fi
@@ -28,12 +30,22 @@ hooks:
 agent:
   max_concurrent_agents: 10
   max_turns: 20
-codex:
-  command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=xhigh app-server
-  approval_policy: never
-  thread_sandbox: workspace-write
-  turn_sandbox_policy:
-    type: workspaceWrite
+pi:
+  command: pi
+  session_dir_name: .pi-rpc-sessions
+  extension_paths:
+    - ../extensions/workspace-guard/index.ts
+    - ../extensions/proof/index.ts
+    - ../extensions/linear-graphql/index.ts
+  disable_extensions: true
+  disable_themes: true
+  model:
+    provider: github-copilot
+    model_id: gpt-5.4
+  thinking_level: low
+server:
+  port: 4040
+  host: 127.0.0.1
 ---
 
 You are working on a Linear ticket `{{ issue.identifier }}`
