@@ -1,4 +1,5 @@
 defmodule SymphonyElixir.Linear.Board do
+  # TODO: Remove this file once we don't use more linear.app
   @moduledoc """
   Loads a project-level kanban view from Linear.
   """
