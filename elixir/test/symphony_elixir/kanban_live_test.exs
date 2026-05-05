@@ -62,6 +62,8 @@ defmodule SymphonyElixir.KanbanLiveTest do
     {:ok, view, html} = live(build_conn(), "/kanban")
     assert html =~ "Project Kanban"
     assert html =~ "Demo Project"
+    assert html =~ "Auto-refresh every 5s"
+    assert html =~ "Always-current project view"
     assert html =~ "Todo"
     assert html =~ "In Progress"
     assert html =~ "Set up board"
