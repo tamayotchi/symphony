@@ -43,17 +43,26 @@ defmodule SymphonyElixir.KanbanLiveTest do
     :ok
   end
 
-  test "kanban liveview renders project columns and refreshes issue cards" do
+  test "kanban liveview renders active project columns in workflow order and refreshes issue cards" do
     queue_linear_responses([
-      {:ok, project_response()},
-      {:ok, issues_response([issue("TAM-1", "Todo", "Set up board", "2026-05-05T10:00:00Z")])},
-      {:ok, project_response()},
-      {:ok, issues_response([issue("TAM-1", "Todo", "Set up board", "2026-05-05T10:00:00Z")])},
       {:ok, project_response()},
       {:ok,
        issues_response([
+         issue("TAM-1", "In Progress", "Set up board", "2026-05-05T10:00:00Z"),
+         issue("TAM-2", "Done", "Ship board", "2026-05-05T10:05:00Z")
+       ])},
+      {:ok, project_response()},
+      {:ok,
+       issues_response([
+         issue("TAM-1", "In Progress", "Set up board", "2026-05-05T10:00:00Z"),
+         issue("TAM-2", "Done", "Ship board", "2026-05-05T10:05:00Z")
+       ])},
+      {:ok, project_response()},
+      {:ok,
+       issues_response([
+         issue("TAM-3", "Todo", "Follow-up polish", "2026-05-05T11:05:00Z"),
          issue("TAM-1", "In Progress", "Set up board", "2026-05-05T11:00:00Z"),
-         issue("TAM-2", "Todo", "Follow-up polish", "2026-05-05T11:05:00Z")
+         issue("TAM-2", "Done", "Ship board", "2026-05-05T10:05:00Z")
        ])}
     ])
 
@@ -64,16 +73,19 @@ defmodule SymphonyElixir.KanbanLiveTest do
     assert html =~ "Demo Project"
     assert html =~ "Auto-refresh every 5s"
     assert html =~ "Always-current project view"
-    assert html =~ "Todo"
-    assert html =~ "In Progress"
     assert html =~ "Set up board"
-    assert html =~ "No issues in this state."
+    assert html =~ "Ship board"
+    refute html =~ "No issues in this state."
+    refute html =~ ~s(>Todo</h2>)
+
+    assert column_titles(html) == ["In Progress", "Done"]
 
     send(view.pid, :refresh_board)
 
     refreshed_html = render(view)
     assert refreshed_html =~ "Follow-up polish"
     assert refreshed_html =~ "Updated "
+    assert column_titles(refreshed_html) == ["Todo", "In Progress", "Done"]
   end
 
   test "kanban liveview renders a friendly error state when Linear data fails" do
@@ -117,6 +129,7 @@ defmodule SymphonyElixir.KanbanLiveTest do
                     "name" => "Demo Team",
                     "states" => %{
                       "nodes" => [
+                        %{"id" => "backlog", "name" => "Backlog", "type" => "backlog", "color" => "#c7ccd6", "position" => 0},
                         %{"id" => "todo", "name" => "Todo", "type" => "unstarted", "color" => "#8892a0", "position" => 1},
                         %{"id" => "progress", "name" => "In Progress", "type" => "started", "color" => "#f2c94c", "position" => 2},
                         %{"id" => "done", "name" => "Done", "type" => "completed", "color" => "#4caf50", "position" => 3}
@@ -141,6 +154,11 @@ defmodule SymphonyElixir.KanbanLiveTest do
         }
       }
     }
+  end
+
+  defp column_titles(html) do
+    Regex.scan(~r/<h2 class="kanban-column-title">([^<]+)<\/h2>/, html, capture: :all_but_first)
+    |> List.flatten()
   end
 
   defp issue(identifier, state_name, title, updated_at) do

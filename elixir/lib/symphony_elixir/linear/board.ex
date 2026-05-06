@@ -151,14 +151,19 @@ defmodule SymphonyElixir.Linear.Board do
 
     columns =
       states
-      |> Enum.map(fn state ->
+      |> Enum.reduce([], fn state, acc ->
         column_issues =
           issues_by_state
           |> Map.get(state.name, [])
           |> Enum.sort_by(&issue_sort_key/1)
 
-        Map.put(state, :issues, column_issues)
+        if column_issues == [] do
+          acc
+        else
+          [Map.put(state, :issues, column_issues) | acc]
+        end
       end)
+      |> Enum.reverse()
       |> append_unknown_state_columns(issues_by_state)
 
     %{
