@@ -88,6 +88,52 @@ defmodule SymphonyElixir.KanbanLiveTest do
     assert column_titles(refreshed_html) == ["Todo", "In Progress", "Done"]
   end
 
+  test "selecting a kanban card renders the compact Pi terminal transcript" do
+    workspace_root = Path.join(System.tmp_dir!(), "kanban-terminal-#{System.unique_integer([:positive])}")
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+    write_transcript!(workspace_root, "TAM-1")
+
+    issues = [
+      issue("TAM-1", "In Progress", "Set up terminal view", "2026-05-05T10:00:00Z"),
+      issue("TAM-2", "Todo", "Missing transcript", "2026-05-05T10:05:00Z")
+    ]
+
+    queue_linear_responses([
+      {:ok, project_response()},
+      {:ok, issues_response(issues)},
+      {:ok, project_response()},
+      {:ok, issues_response(issues)}
+    ])
+
+    start_test_endpoint()
+
+    {:ok, view, html} = live(build_conn(), "/kanban")
+    assert html =~ "Terminal view"
+    assert html =~ "Select a task"
+    refute html =~ "Tool call · bash"
+
+    selected_html =
+      view
+      |> element(~s(button[phx-click="select_issue"][phx-value-identifier="TAM-1"]))
+      |> render_click()
+
+    assert selected_html =~ "Set up terminal view"
+    assert selected_html =~ "User"
+    assert selected_html =~ "Please show the model chat"
+    assert selected_html =~ "Thinking"
+    assert selected_html =~ "Inspect transcript data"
+    assert selected_html =~ "Tool call · bash"
+    assert selected_html =~ "Tool result · bash"
+    assert selected_html =~ "Done from the worker"
+
+    missing_html =
+      view
+      |> element(~s(button[phx-click="select_issue"][phx-value-identifier="TAM-2"]))
+      |> render_click()
+
+    assert missing_html =~ "No Pi RPC session directory exists"
+  end
+
   test "kanban liveview renders a friendly error state when Linear data fails" do
     queue_linear_responses([{:error, :missing_linear_api_token}, {:error, :missing_linear_api_token}])
 
@@ -110,6 +156,55 @@ defmodule SymphonyElixir.KanbanLiveTest do
 
   defp queue_linear_responses(responses) do
     Agent.update(__MODULE__.LinearResponses, fn _ -> responses end)
+  end
+
+  defp write_transcript!(workspace_root, identifier) do
+    session_file = Path.join([workspace_root, identifier, ".pi-rpc-sessions", "1", "session.jsonl"])
+    File.mkdir_p!(Path.dirname(session_file))
+
+    payloads = [
+      %{
+        type: "session",
+        version: 3,
+        id: "session-#{identifier}",
+        timestamp: "2026-05-06T10:00:00Z",
+        cwd: Path.join(workspace_root, identifier)
+      },
+      %{
+        type: "message",
+        timestamp: "2026-05-06T10:00:01Z",
+        message: %{role: "user", content: [%{type: "text", text: "Please show the model chat"}]}
+      },
+      %{
+        type: "message",
+        timestamp: "2026-05-06T10:00:02Z",
+        message: %{
+          role: "assistant",
+          content: [
+            %{type: "thinking", thinking: "Inspect transcript data and compact tool calls."},
+            %{type: "toolCall", id: "call-1", name: "bash", arguments: %{command: "mix test"}}
+          ]
+        }
+      },
+      %{
+        type: "message",
+        timestamp: "2026-05-06T10:00:03Z",
+        message: %{
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: "bash",
+          isError: false,
+          content: [%{type: "text", text: "2 tests, 0 failures"}]
+        }
+      },
+      %{
+        type: "message",
+        timestamp: "2026-05-06T10:00:04Z",
+        message: %{role: "assistant", content: [%{type: "text", text: "Done from the worker"}]}
+      }
+    ]
+
+    File.write!(session_file, Enum.map_join(payloads, "\n", &Jason.encode!/1) <> "\n")
   end
 
   defp project_response do

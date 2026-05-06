@@ -16,10 +16,7 @@ defmodule SymphonyElixir.Workspace do
     issue_context = issue_context(issue_or_identifier)
 
     try do
-      safe_id = safe_identifier(issue_context.issue_identifier)
-
-      with {:ok, workspace} <- workspace_path_for_issue(safe_id, worker_host),
-           :ok <- validate_workspace_path(workspace, worker_host),
+      with {:ok, workspace} <- path_for_issue(issue_context.issue_identifier, worker_host),
            {:ok, workspace, created?} <- ensure_workspace(workspace, worker_host),
            :ok <- maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
         {:ok, workspace}
@@ -28,6 +25,17 @@ defmodule SymphonyElixir.Workspace do
       error in [ArgumentError, ErlangError, File.Error] ->
         Logger.error("Workspace creation failed #{issue_log_context(issue_context)} worker_host=#{worker_host_for_log(worker_host)} error=#{Exception.message(error)}")
         {:error, error}
+    end
+  end
+
+  @spec path_for_issue(map() | String.t() | nil, worker_host()) :: {:ok, Path.t()} | {:error, term()}
+  def path_for_issue(issue_or_identifier, worker_host \\ nil) do
+    issue_context = issue_context(issue_or_identifier)
+    safe_id = safe_identifier(issue_context.issue_identifier)
+
+    with {:ok, workspace} <- workspace_path_for_issue(safe_id, worker_host),
+         :ok <- validate_workspace_path(workspace, worker_host) do
+      {:ok, workspace}
     end
   end
 
