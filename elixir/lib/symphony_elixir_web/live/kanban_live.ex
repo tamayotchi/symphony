@@ -7,7 +7,7 @@ defmodule SymphonyElixirWeb.KanbanLive do
 
   alias SymphonyElixir.Linear.Board
 
-  @refresh_interval_ms 5_000
+  @refresh_interval_ms 30_000
 
   @impl true
   def mount(_params, _session, socket) do
