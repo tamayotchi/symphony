@@ -227,6 +227,7 @@ pi:
 The observability UI now runs on a minimal Phoenix stack:
 
 - LiveView for the dashboard at `/`
+- LiveView kanban board at `/kanban`, including a task-selectable terminal-style view of local Pi RPC session transcripts when they exist in the issue workspace
 - JSON API for operational debugging under `/api/v1/*`
 - Bandit as the HTTP server
 - Phoenix dependency static assets for the LiveView client bootstrap
