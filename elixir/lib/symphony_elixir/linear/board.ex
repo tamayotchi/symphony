@@ -1,5 +1,4 @@
 defmodule SymphonyElixir.Linear.Board do
-  # TODO: Remove this file once we don't use more linear.app
   @moduledoc """
   Loads a project-level kanban view from Linear.
   """
@@ -142,25 +141,43 @@ defmodule SymphonyElixir.Linear.Board do
   end
 
   defp fetch_project_issues_page(project_slug, after_cursor, acc_issues) do
-    case client_module().graphql(@issues_query, %{projectSlug: project_slug, first: @issue_page_size, after: after_cursor}) do
-      {:ok, response} ->
-        with %{"nodes" => nodes, "pageInfo" => page_info} <- get_in(response, ["data", "issues"]) do
-          issues = Enum.map(nodes, &normalize_issue/1)
-          updated_acc = Enum.reverse(issues, acc_issues)
+    variables = %{projectSlug: project_slug, first: @issue_page_size, after: after_cursor}
 
-          if page_info["hasNextPage"] == true and is_binary(page_info["endCursor"]) and page_info["endCursor"] != "" do
-            fetch_project_issues_page(project_slug, page_info["endCursor"], updated_acc)
-          else
-            {:ok, Enum.reverse(updated_acc)}
-          end
-        else
-          _ -> {:error, :linear_unknown_payload}
-        end
+    case client_module().graphql(@issues_query, variables) do
+      {:ok, response} ->
+        fetch_project_issues_page_from_response(project_slug, response, acc_issues)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  defp fetch_project_issues_page_from_response(project_slug, response, acc_issues) do
+    case get_in(response, ["data", "issues"]) do
+      %{"nodes" => nodes, "pageInfo" => page_info} ->
+        continue_project_issues_page(project_slug, nodes, page_info, acc_issues)
+
+      _ ->
+        {:error, :linear_unknown_payload}
+    end
+  end
+
+  defp continue_project_issues_page(project_slug, nodes, page_info, acc_issues) do
+    issues = Enum.map(nodes, &normalize_issue/1)
+    updated_acc = Enum.reverse(issues, acc_issues)
+
+    if has_next_issue_page?(page_info) do
+      fetch_project_issues_page(project_slug, page_info["endCursor"], updated_acc)
+    else
+      {:ok, Enum.reverse(updated_acc)}
+    end
+  end
+
+  defp has_next_issue_page?(%{"hasNextPage" => true, "endCursor" => cursor}) when is_binary(cursor) do
+    cursor != ""
+  end
+
+  defp has_next_issue_page?(_page_info), do: false
 
   defp build_board(project, issues) do
     team = get_in(project, ["teams", "nodes", Access.at(0)]) || %{}

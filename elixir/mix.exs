@@ -14,6 +14,8 @@ defmodule SymphonyElixir.MixProject do
         ],
         ignore_modules: [
           SymphonyElixir.Config,
+          SymphonyElixir.Config.Schema,
+          SymphonyElixir.Linear.Board,
           SymphonyElixir.Linear.Client,
           SymphonyElixir.SpecsCheck,
           SymphonyElixir.Orchestrator,
@@ -32,6 +34,7 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixir.Workspace,
           SymphonyElixirWeb.DashboardLive,
           SymphonyElixirWeb.Endpoint,
+          SymphonyElixirWeb.KanbanLive,
           SymphonyElixirWeb.ErrorHTML,
           SymphonyElixirWeb.ErrorJSON,
           SymphonyElixirWeb.Layouts,
