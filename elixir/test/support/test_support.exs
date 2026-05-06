@@ -162,15 +162,6 @@ defmodule SymphonyElixir.TestSupport do
     codex_turn_timeout_ms = Keyword.get(config, :codex_turn_timeout_ms)
     codex_read_timeout_ms = Keyword.get(config, :codex_read_timeout_ms)
     codex_stall_timeout_ms = Keyword.get(config, :codex_stall_timeout_ms)
-    pi_command = Keyword.get(config, :pi_command)
-    pi_response_timeout_ms = Keyword.get(config, :pi_response_timeout_ms)
-    pi_session_dir_name = Keyword.get(config, :pi_session_dir_name)
-    pi_extension_paths = Keyword.get(config, :pi_extension_paths)
-    pi_disable_extensions = Keyword.get(config, :pi_disable_extensions)
-    pi_disable_themes = Keyword.get(config, :pi_disable_themes)
-    pi_model_provider = Keyword.get(config, :pi_model_provider)
-    pi_model_id = Keyword.get(config, :pi_model_id)
-    pi_thinking_level = Keyword.get(config, :pi_thinking_level)
     hook_after_create = Keyword.get(config, :hook_after_create)
     hook_before_run = Keyword.get(config, :hook_before_run)
     hook_after_run = Keyword.get(config, :hook_after_run)
@@ -212,17 +203,7 @@ defmodule SymphonyElixir.TestSupport do
         "  turn_timeout_ms: #{yaml_value(codex_turn_timeout_ms)}",
         "  read_timeout_ms: #{yaml_value(codex_read_timeout_ms)}",
         "  stall_timeout_ms: #{yaml_value(codex_stall_timeout_ms)}",
-        pi_yaml(
-          pi_command,
-          pi_response_timeout_ms,
-          pi_session_dir_name,
-          pi_extension_paths,
-          pi_disable_extensions,
-          pi_disable_themes,
-          pi_model_provider,
-          pi_model_id,
-          pi_thinking_level
-        ),
+        pi_yaml(config),
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
@@ -287,39 +268,63 @@ defmodule SymphonyElixir.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp pi_yaml(command, response_timeout_ms, session_dir_name, extension_paths, disable_extensions, disable_themes, model_provider, model_id, thinking_level)
-       when is_nil(command) and is_nil(response_timeout_ms) and is_nil(session_dir_name) and extension_paths in [nil, []] and is_nil(disable_extensions) and is_nil(disable_themes) and
-              is_nil(model_provider) and is_nil(model_id) and is_nil(thinking_level),
-       do: nil
+  defp pi_yaml(config) do
+    pi_config = %{
+      command: Keyword.get(config, :pi_command),
+      response_timeout_ms: Keyword.get(config, :pi_response_timeout_ms),
+      session_dir_name: Keyword.get(config, :pi_session_dir_name),
+      extension_paths: Keyword.get(config, :pi_extension_paths),
+      disable_extensions: Keyword.get(config, :pi_disable_extensions),
+      disable_themes: Keyword.get(config, :pi_disable_themes),
+      model_provider: Keyword.get(config, :pi_model_provider),
+      model_id: Keyword.get(config, :pi_model_id),
+      thinking_level: Keyword.get(config, :pi_thinking_level)
+    }
 
-  defp pi_yaml(command, response_timeout_ms, session_dir_name, extension_paths, disable_extensions, disable_themes, model_provider, model_id, thinking_level) do
-    model_yaml =
-      cond do
-        is_binary(model_provider) and is_binary(model_id) ->
-          [
-            "  model:",
-            "    provider: #{yaml_value(model_provider)}",
-            "    model_id: #{yaml_value(model_id)}"
-          ]
+    if empty_pi_config?(pi_config), do: nil, else: render_pi_yaml(pi_config)
+  end
 
-        true ->
-          []
-      end
+  defp empty_pi_config?(pi_config) do
+    required_values = [
+      pi_config.command,
+      pi_config.response_timeout_ms,
+      pi_config.session_dir_name,
+      pi_config.disable_extensions,
+      pi_config.disable_themes,
+      pi_config.model_provider,
+      pi_config.model_id,
+      pi_config.thinking_level
+    ]
 
+    Enum.all?(required_values, &is_nil/1) and pi_config.extension_paths in [nil, []]
+  end
+
+  defp render_pi_yaml(pi_config) do
     [
       "pi:",
-      command && "  command: #{yaml_value(command)}",
-      response_timeout_ms && "  response_timeout_ms: #{yaml_value(response_timeout_ms)}",
-      session_dir_name && "  session_dir_name: #{yaml_value(session_dir_name)}",
-      extension_paths not in [nil, []] && "  extension_paths: #{yaml_value(extension_paths)}",
-      !is_nil(disable_extensions) && "  disable_extensions: #{yaml_value(disable_extensions)}",
-      !is_nil(disable_themes) && "  disable_themes: #{yaml_value(disable_themes)}",
-      thinking_level && "  thinking_level: #{yaml_value(thinking_level)}"
+      pi_config.command && "  command: #{yaml_value(pi_config.command)}",
+      pi_config.response_timeout_ms && "  response_timeout_ms: #{yaml_value(pi_config.response_timeout_ms)}",
+      pi_config.session_dir_name && "  session_dir_name: #{yaml_value(pi_config.session_dir_name)}",
+      pi_config.extension_paths not in [nil, []] && "  extension_paths: #{yaml_value(pi_config.extension_paths)}",
+      !is_nil(pi_config.disable_extensions) && "  disable_extensions: #{yaml_value(pi_config.disable_extensions)}",
+      !is_nil(pi_config.disable_themes) && "  disable_themes: #{yaml_value(pi_config.disable_themes)}",
+      pi_config.thinking_level && "  thinking_level: #{yaml_value(pi_config.thinking_level)}"
     ]
-    |> Kernel.++(model_yaml)
+    |> Kernel.++(pi_model_yaml(pi_config))
     |> Enum.reject(&(&1 in [nil, false]))
     |> Enum.join("\n")
   end
+
+  defp pi_model_yaml(%{model_provider: model_provider, model_id: model_id})
+       when is_binary(model_provider) and is_binary(model_id) do
+    [
+      "  model:",
+      "    provider: #{yaml_value(model_provider)}",
+      "    model_id: #{yaml_value(model_id)}"
+    ]
+  end
+
+  defp pi_model_yaml(_pi_config), do: []
 
   defp observability_yaml(enabled, refresh_ms, render_interval_ms) do
     [

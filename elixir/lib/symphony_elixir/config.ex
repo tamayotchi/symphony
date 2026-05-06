@@ -146,9 +146,8 @@ defmodule SymphonyElixir.Config do
 
   defp validate_semantics(settings) do
     with :ok <- validate_tracker_kind(settings),
-         :ok <- validate_linear_requirements(settings),
-         :ok <- validate_worker_runtime_semantics(settings) do
-      :ok
+         :ok <- validate_linear_requirements(settings) do
+      validate_worker_runtime_semantics(settings)
     end
   end
 

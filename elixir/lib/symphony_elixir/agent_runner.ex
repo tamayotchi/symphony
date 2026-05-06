@@ -103,24 +103,36 @@ defmodule SymphonyElixir.AgentRunner do
       end
 
       try do
-        do_run_worker_turns(
-          runtime_module,
-          session,
-          workspace,
-          issue,
-          worker_update_recipient,
-          opts,
-          issue_state_fetcher,
-          1,
-          max_turns
-        )
+        do_run_worker_turns(%{
+          runtime_module: runtime_module,
+          session: session,
+          workspace: workspace,
+          issue: issue,
+          worker_update_recipient: worker_update_recipient,
+          opts: opts,
+          issue_state_fetcher: issue_state_fetcher,
+          turn_number: 1,
+          max_turns: max_turns
+        })
       after
         runtime_module.stop_session(session)
       end
     end
   end
 
-  defp do_run_worker_turns(runtime_module, session, workspace, issue, worker_update_recipient, opts, issue_state_fetcher, turn_number, max_turns) do
+  defp do_run_worker_turns(context) do
+    %{
+      runtime_module: runtime_module,
+      session: session,
+      workspace: workspace,
+      issue: issue,
+      worker_update_recipient: worker_update_recipient,
+      opts: opts,
+      issue_state_fetcher: issue_state_fetcher,
+      turn_number: turn_number,
+      max_turns: max_turns
+    } = context
+
     prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
 
     with {:ok, turn_session} <-
@@ -137,17 +149,9 @@ defmodule SymphonyElixir.AgentRunner do
         {:continue, refreshed_issue} when turn_number < max_turns ->
           Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
 
-          do_run_worker_turns(
-            runtime_module,
-            session,
-            workspace,
-            refreshed_issue,
-            worker_update_recipient,
-            opts,
-            issue_state_fetcher,
-            turn_number + 1,
-            max_turns
-          )
+          context
+          |> Map.merge(%{issue: refreshed_issue, turn_number: turn_number + 1})
+          |> do_run_worker_turns()
 
         {:continue, refreshed_issue} ->
           Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")

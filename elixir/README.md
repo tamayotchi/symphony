@@ -226,7 +226,8 @@ pi:
 
 The observability UI now runs on a minimal Phoenix stack:
 
-- LiveView for the dashboard at `/`
+- LiveView for the observability dashboard at `/`
+- LiveView for the Linear project Kanban board at `/kanban`, including per-card state move controls
 - JSON API for operational debugging under `/api/v1/*`
 - Bandit as the HTTP server
 - Phoenix dependency static assets for the LiveView client bootstrap
