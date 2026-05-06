@@ -68,6 +68,14 @@ defmodule SymphonyElixir.Linear.Board do
   }
   """
 
+  @move_issue_mutation """
+  mutation SymphonyLinearProjectBoardMoveIssue($issueId: String!, $stateId: String!) {
+    issueUpdate(id: $issueId, input: {stateId: $stateId}) {
+      success
+    }
+  }
+  """
+
   @issue_page_size 50
 
   @type board_issue :: %{
@@ -103,6 +111,21 @@ defmodule SymphonyElixir.Linear.Board do
         end
     end
   end
+
+  @spec move_issue_to_state(String.t(), String.t()) :: :ok | {:error, term()}
+  def move_issue_to_state(issue_id, state_id) when is_binary(issue_id) and is_binary(state_id) do
+    with :ok <- validate_move_input(issue_id, state_id),
+         {:ok, response} <- client_module().graphql(@move_issue_mutation, %{issueId: issue_id, stateId: state_id}),
+         true <- get_in(response, ["data", "issueUpdate", "success"]) == true do
+      :ok
+    else
+      false -> {:error, :issue_update_failed}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :issue_update_failed}
+    end
+  end
+
+  def move_issue_to_state(_issue_id, _state_id), do: {:error, :invalid_issue_move}
 
   defp fetch_project(project_slug) do
     with {:ok, response} <- client_module().graphql(@project_query, %{projectSlug: project_slug}),
@@ -177,6 +200,7 @@ defmodule SymphonyElixir.Linear.Board do
         id: team["id"],
         name: team["name"]
       },
+      states: states,
       columns: columns,
       total_issues: length(issues),
       fetched_at: DateTime.utc_now() |> DateTime.truncate(:second)
@@ -247,6 +271,14 @@ defmodule SymphonyElixir.Linear.Board do
   end
 
   defp normalize_labels(_), do: []
+
+  defp validate_move_input(issue_id, state_id) do
+    if String.trim(issue_id) == "" or String.trim(state_id) == "" do
+      {:error, :invalid_issue_move}
+    else
+      :ok
+    end
+  end
 
   defp parse_datetime(nil), do: nil
 

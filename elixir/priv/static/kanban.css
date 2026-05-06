@@ -103,6 +103,28 @@
   gap: 0.35rem;
 }
 
+.kanban-feedback {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink);
+}
+
+.kanban-feedback-success {
+  border-color: rgba(16, 163, 127, 0.22);
+  background: rgba(16, 163, 127, 0.08);
+}
+
+.kanban-feedback-error {
+  border-color: rgba(196, 56, 56, 0.24);
+  background: rgba(196, 56, 56, 0.08);
+}
+
 .board-live-badge {
   min-width: 9.5rem;
   justify-content: center;
@@ -272,6 +294,72 @@
   transform: translateY(-1px);
 }
 
+.kanban-card-actions {
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 0.1rem;
+}
+
+.kanban-card-open-link {
+  color: var(--accent-ink);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.kanban-card-open-link:hover {
+  color: var(--accent);
+}
+
+.issue-move-form {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.issue-move-label {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.issue-move-select,
+.issue-move-button {
+  min-height: 2rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
+  font: inherit;
+}
+
+.issue-move-select {
+  min-width: 0;
+  padding: 0.25rem 0.65rem;
+}
+
+.issue-move-button {
+  padding: 0.25rem 0.7rem;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.issue-move-button:hover:not(:disabled) {
+  border-color: rgba(16, 163, 127, 0.32);
+  background: rgba(16, 163, 127, 0.16);
+}
+
+.issue-move-select:disabled,
+.issue-move-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .kanban-card-topline,
 .label-row,
 .kanban-card-footer {
@@ -351,6 +439,11 @@
 
   .kanban-board {
     grid-auto-columns: minmax(260px, 85vw);
+  }
+
+  .issue-move-form {
+    grid-template-columns: 1fr;
+    justify-items: stretch;
   }
 }
 

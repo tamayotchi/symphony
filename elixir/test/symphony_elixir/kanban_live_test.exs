@@ -11,7 +11,9 @@ defmodule SymphonyElixir.KanbanLiveTest do
     def fetch_issues_by_states(_states), do: {:ok, []}
     def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
 
-    def graphql(_query, _variables) do
+    def graphql(query, variables) do
+      Agent.update(SymphonyElixir.KanbanLiveTest.LinearRequests, &(&1 ++ [{query, variables}]))
+
       Agent.get_and_update(SymphonyElixir.KanbanLiveTest.LinearResponses, fn
         [next | rest] -> {next, rest}
         [] -> {{:error, :no_fake_linear_response}, []}
@@ -26,6 +28,11 @@ defmodule SymphonyElixir.KanbanLiveTest do
     start_supervised!(%{
       id: __MODULE__.LinearResponses,
       start: {Agent, :start_link, [fn -> [] end, [name: __MODULE__.LinearResponses]]}
+    })
+
+    start_supervised!(%{
+      id: __MODULE__.LinearRequests,
+      start: {Agent, :start_link, [fn -> [] end, [name: __MODULE__.LinearRequests]]}
     })
 
     on_exit(fn ->
@@ -75,6 +82,10 @@ defmodule SymphonyElixir.KanbanLiveTest do
     assert html =~ "Always-current project view"
     assert html =~ "Set up board"
     assert html =~ "Ship board"
+    assert html =~ "Open in Linear ↗"
+    assert html =~ ~s(id="move-issue-tam-1")
+    assert html =~ ~s(value="done")
+    refute html =~ ~s(value="progress">In Progress</option>)
     refute html =~ "No issues in this state."
     refute html =~ ~s(>Todo</h2>)
 
@@ -98,6 +109,80 @@ defmodule SymphonyElixir.KanbanLiveTest do
     assert html =~ "missing_linear_api_token"
   end
 
+  test "kanban liveview moves an issue to a selected Linear state and refreshes the board" do
+    review_issue = issue("TAM-7", "Human Review", "Review handoff", "2026-05-05T10:00:00Z")
+
+    queue_linear_responses([
+      {:ok, project_response()},
+      {:ok, issues_response([review_issue])},
+      {:ok, project_response()},
+      {:ok, issues_response([review_issue])},
+      {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}},
+      {:ok, project_response()},
+      {:ok, issues_response([issue("TAM-7", "Done", "Review handoff", "2026-05-05T10:05:00Z")])}
+    ])
+
+    start_test_endpoint()
+
+    {:ok, view, html} = live(build_conn(), "/kanban")
+    assert html =~ "Human Review"
+    assert html =~ ~s(value="done")
+    assert html =~ ~s(value="canceled")
+    refute html =~ ~s(value="review">Human Review</option>)
+
+    moved_html = render_submit(element(view, "#move-issue-tam-7"), %{"issue_id" => "tam-7", "state_id" => "done"})
+
+    assert moved_html =~ "Move complete."
+    assert moved_html =~ "Moved TAM-7 to Done."
+    assert column_titles(moved_html) == ["Done"]
+
+    assert Enum.any?(linear_requests(), fn {query, variables} ->
+             query =~ "SymphonyLinearProjectBoardMoveIssue" and variables == %{issueId: "tam-7", stateId: "done"}
+           end)
+  end
+
+  test "kanban liveview rejects invalid target states without calling Linear mutation" do
+    review_issue = issue("TAM-7", "Human Review", "Review handoff", "2026-05-05T10:00:00Z")
+
+    queue_linear_responses([
+      {:ok, project_response()},
+      {:ok, issues_response([review_issue])},
+      {:ok, project_response()},
+      {:ok, issues_response([review_issue])}
+    ])
+
+    start_test_endpoint()
+
+    {:ok, view, _html} = live(build_conn(), "/kanban")
+    rejected_html = render_submit(element(view, "#move-issue-tam-7"), %{"issue_id" => "tam-7", "state_id" => "missing-state"})
+
+    assert rejected_html =~ "Move failed."
+    assert rejected_html =~ "Choose a valid issue and target state."
+    refute Enum.any?(linear_requests(), fn {query, _variables} -> query =~ "SymphonyLinearProjectBoardMoveIssue" end)
+  end
+
+  test "kanban liveview keeps the board visible when a Linear move fails" do
+    review_issue = issue("TAM-7", "Human Review", "Review handoff", "2026-05-05T10:00:00Z")
+
+    queue_linear_responses([
+      {:ok, project_response()},
+      {:ok, issues_response([review_issue])},
+      {:ok, project_response()},
+      {:ok, issues_response([review_issue])},
+      {:ok, %{"data" => %{"issueUpdate" => %{"success" => false}}}}
+    ])
+
+    start_test_endpoint()
+
+    {:ok, view, _html} = live(build_conn(), "/kanban")
+    failed_html = render_submit(element(view, "#move-issue-tam-7"), %{"issue_id" => "tam-7", "state_id" => "done"})
+
+    assert failed_html =~ "Move failed."
+    assert failed_html =~ "Could not move TAM-7: issue_update_failed"
+    assert failed_html =~ "Review handoff"
+    assert column_titles(failed_html) == ["Human Review"]
+  end
+
   defp start_test_endpoint do
     endpoint_config =
       :symphony_elixir
@@ -110,6 +195,10 @@ defmodule SymphonyElixir.KanbanLiveTest do
 
   defp queue_linear_responses(responses) do
     Agent.update(__MODULE__.LinearResponses, fn _ -> responses end)
+  end
+
+  defp linear_requests do
+    Agent.get(__MODULE__.LinearRequests, & &1)
   end
 
   defp project_response do
@@ -132,7 +221,9 @@ defmodule SymphonyElixir.KanbanLiveTest do
                         %{"id" => "backlog", "name" => "Backlog", "type" => "backlog", "color" => "#c7ccd6", "position" => 0},
                         %{"id" => "todo", "name" => "Todo", "type" => "unstarted", "color" => "#8892a0", "position" => 1},
                         %{"id" => "progress", "name" => "In Progress", "type" => "started", "color" => "#f2c94c", "position" => 2},
-                        %{"id" => "done", "name" => "Done", "type" => "completed", "color" => "#4caf50", "position" => 3}
+                        %{"id" => "done", "name" => "Done", "type" => "completed", "color" => "#4caf50", "position" => 3},
+                        %{"id" => "canceled", "name" => "Canceled", "type" => "canceled", "color" => "#c43838", "position" => 4},
+                        %{"id" => "review", "name" => "Human Review", "type" => "started", "color" => "#8b5cf6", "position" => 1002}
                       ]
                     }
                   }

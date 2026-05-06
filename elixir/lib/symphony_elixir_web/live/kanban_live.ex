@@ -15,6 +15,8 @@ defmodule SymphonyElixirWeb.KanbanLive do
       socket
       |> assign(:board, nil)
       |> assign(:error, nil)
+      |> assign(:move_notice, nil)
+      |> assign(:move_error, nil)
       |> load_board()
 
     if connected?(socket) do
@@ -28,6 +30,27 @@ defmodule SymphonyElixirWeb.KanbanLive do
   def handle_info(:refresh_board, socket) do
     schedule_refresh()
     {:noreply, load_board(socket)}
+  end
+
+  @impl true
+  def handle_event("move_issue", %{"issue_id" => issue_id, "state_id" => state_id}, socket) do
+    case validate_move(socket.assigns.board, issue_id, state_id) do
+      {:ok, issue, state} ->
+        case Board.move_issue_to_state(issue.id, state.id) do
+          :ok ->
+            {:noreply, reload_board_after_move(socket, "Moved #{issue.identifier} to #{state.name}.")}
+
+          {:error, reason} ->
+            {:noreply, assign_move_error(socket, "Could not move #{issue.identifier}: #{format_error(reason)}")}
+        end
+
+      {:error, message} ->
+        {:noreply, assign_move_error(socket, message)}
+    end
+  end
+
+  def handle_event("move_issue", _params, socket) do
+    {:noreply, assign_move_error(socket, "Choose a valid issue and target state.")}
   end
 
   @impl true
@@ -73,6 +96,16 @@ defmodule SymphonyElixirWeb.KanbanLive do
           </div>
         </div>
       </header>
+
+      <section :if={@move_notice} class="kanban-feedback kanban-feedback-success" role="status">
+        <strong>Move complete.</strong>
+        <span><%= @move_notice %></span>
+      </section>
+
+      <section :if={@move_error} class="kanban-feedback kanban-feedback-error" role="alert">
+        <strong>Move failed.</strong>
+        <span><%= @move_error %></span>
+      </section>
 
       <%= if @error do %>
         <section class="error-card">
@@ -135,7 +168,7 @@ defmodule SymphonyElixirWeb.KanbanLive do
               <%= if column.issues == [] do %>
                 <div class="kanban-empty">No issues in this state.</div>
               <% else %>
-                <a :for={issue <- column.issues} class="kanban-card" href={issue.url} target="_blank" rel="noreferrer">
+                <article :for={issue <- column.issues} class="kanban-card" id={"kanban-card-#{issue_dom_id(issue)}"}>
                   <div class="kanban-card-topline">
                     <span class="issue-id"><%= issue.identifier %></span>
                     <span :if={issue.priority && issue.priority > 0} class="priority-pill">
@@ -162,7 +195,38 @@ defmodule SymphonyElixirWeb.KanbanLive do
                       Updated <%= relative_time(issue.updated_at) %>
                     </p>
                   </div>
-                </a>
+
+                  <div class="kanban-card-actions">
+                    <a :if={issue.url} class="kanban-card-open-link" href={issue.url} target="_blank" rel="noreferrer">
+                      Open in Linear ↗
+                    </a>
+
+                    <form id={"move-issue-#{issue_dom_id(issue)}"} class="issue-move-form" phx-submit="move_issue">
+                      <input type="hidden" name="issue_id" value={issue.id} />
+                      <label class="issue-move-label" for={"move-state-#{issue_dom_id(issue)}"}>Move to</label>
+                      <select
+                        id={"move-state-#{issue_dom_id(issue)}"}
+                        class="issue-move-select"
+                        name="state_id"
+                        required
+                        disabled={available_move_states(@board.states, issue) == []}
+                      >
+                        <option value="">Choose state…</option>
+                        <option :for={state <- available_move_states(@board.states, issue)} value={state.id}>
+                          <%= state.name %>
+                        </option>
+                      </select>
+                      <button
+                        type="submit"
+                        class="issue-move-button"
+                        disabled={available_move_states(@board.states, issue) == []}
+                        phx-disable-with="Moving…"
+                      >
+                        Move
+                      </button>
+                    </form>
+                  </div>
+                </article>
               <% end %>
             </div>
           </article>
@@ -184,6 +248,67 @@ defmodule SymphonyElixirWeb.KanbanLive do
         |> assign(:board, nil)
         |> assign(:error, reason)
     end
+  end
+
+  defp reload_board_after_move(socket, notice) do
+    case Board.fetch_project_board() do
+      {:ok, board} ->
+        socket
+        |> assign(:board, board)
+        |> assign(:error, nil)
+        |> assign(:move_notice, notice)
+        |> assign(:move_error, nil)
+
+      {:error, reason} ->
+        assign_move_error(socket, "Issue moved, but the board could not refresh: #{format_error(reason)}")
+    end
+  end
+
+  defp validate_move(nil, _issue_id, _state_id), do: {:error, "Board data is not loaded yet."}
+
+  defp validate_move(board, issue_id, state_id) do
+    with %{} = issue <- find_issue(board, issue_id),
+         %{} = state <- find_state(board, state_id),
+         :ok <- ensure_state_changed(issue, state) do
+      {:ok, issue, state}
+    else
+      :same_state -> {:error, "Choose a different target state."}
+      _ -> {:error, "Choose a valid issue and target state."}
+    end
+  end
+
+  defp find_issue(board, issue_id) when is_binary(issue_id) do
+    board.columns
+    |> Enum.flat_map(& &1.issues)
+    |> Enum.find(&(&1.id == issue_id))
+  end
+
+  defp find_issue(_board, _issue_id), do: nil
+
+  defp find_state(board, state_id) when is_binary(state_id) do
+    Enum.find(board.states || [], &(&1.id == state_id))
+  end
+
+  defp find_state(_board, _state_id), do: nil
+
+  defp ensure_state_changed(issue, state) do
+    if issue.state_id == state.id or issue.state_name == state.name do
+      :same_state
+    else
+      :ok
+    end
+  end
+
+  defp assign_move_error(socket, message) do
+    socket
+    |> assign(:move_notice, nil)
+    |> assign(:move_error, message)
+  end
+
+  defp available_move_states(states, issue) do
+    Enum.reject(states || [], fn state ->
+      is_nil(state.id) or state.id == issue.state_id or state.name == issue.state_name
+    end)
   end
 
   defp schedule_refresh do
@@ -221,6 +346,13 @@ defmodule SymphonyElixirWeb.KanbanLive do
   end
 
   defp assignee_initials(_name), do: "?"
+
+  defp issue_dom_id(issue) do
+    issue
+    |> Map.get(:id, Map.get(issue, :identifier, "unknown"))
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]/, "-")
+  end
 
   defp column_style(column) do
     case Map.get(column, :color) do
