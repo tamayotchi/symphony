@@ -37,6 +37,7 @@ defmodule SymphonyElixirWeb.Layouts do
           });
         </script>
         <link rel="stylesheet" href="/dashboard.css" />
+        <link rel="stylesheet" href="/kanban.css" />
       </head>
       <body>
         {@inner_content}
