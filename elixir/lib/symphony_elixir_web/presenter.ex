@@ -234,6 +234,10 @@ defmodule SymphonyElixirWeb.Presenter do
   defp serialize_refresh_response(:unavailable), do: %{queued: false, status: "unavailable"}
   defp serialize_refresh_response(other), do: %{queued: false, status: to_string(other)}
 
+  defp workspace_path_from_project(issue_identifier, %{workspace_root: workspace_root}) when is_binary(workspace_root) do
+    Path.join(workspace_root, issue_identifier)
+  end
+
   defp workspace_path_from_project(issue_identifier, %{workflow_path: workflow_path}) when is_binary(workflow_path) do
     Path.join(Config.settings!(workflow_path: workflow_path).workspace.root, issue_identifier)
   end

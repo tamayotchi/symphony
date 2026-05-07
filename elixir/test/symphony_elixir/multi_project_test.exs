@@ -4,7 +4,7 @@ defmodule SymphonyElixir.MultiProjectTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias SymphonyElixir.{BootConfig, Config, Projects, RuntimeContext, Workflow, WorkflowStore}
+  alias SymphonyElixir.{BootConfig, Projects, RuntimeContext, Workflow, WorkflowStore}
   alias SymphonyElixir.Config.Schema
   alias SymphonyElixirWeb.Presenter
 
@@ -59,8 +59,8 @@ defmodule SymphonyElixir.MultiProjectTest do
     File.mkdir_p!(Path.dirname(backend_workflow))
     File.mkdir_p!(Path.dirname(frontend_workflow))
 
-    write_workflow_file!(backend_workflow, workspace_root: Path.join(root, "backend-workspaces"))
-    write_workflow_file!(frontend_workflow, workspace_root: Path.join(root, "frontend-workspaces"))
+    write_workflow_file!(backend_workflow, workspace_root: "./backend-workspaces")
+    write_workflow_file!(frontend_workflow, workspace_root: "./frontend-workspaces")
 
     manifest = Path.join(root, "SYMPHONY.md")
 
@@ -87,6 +87,7 @@ defmodule SymphonyElixir.MultiProjectTest do
 
     assert Enum.map(projects, & &1.id) == ["backend", "frontend"]
     assert Enum.map(projects, & &1.workflow_path) == [backend_workflow, frontend_workflow]
+    assert Enum.map(projects, & &1.workspace_root) == [Path.join(root, "backend/backend-workspaces"), Path.join(root, "frontend/frontend-workspaces")]
     assert server.host == "127.0.0.1"
     assert server.port == 4040
     assert observability.refresh_ms == 250
@@ -177,8 +178,22 @@ defmodule SymphonyElixir.MultiProjectTest do
       server: %Schema.Server{host: "127.0.0.1", port: 4040},
       observability: %Schema.Observability{dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16},
       projects: [
-        %{id: "backend", workflow_path: backend_workflow, orchestrator: backend_orchestrator},
-        %{id: "frontend", workflow_path: frontend_workflow, orchestrator: frontend_orchestrator}
+        %{
+          id: "backend",
+          workflow_path: backend_workflow,
+          workspace_root: Path.join(root, "backend-workspaces"),
+          project_slug: "backend-project",
+          max_concurrent_agents: 10,
+          orchestrator: backend_orchestrator
+        },
+        %{
+          id: "frontend",
+          workflow_path: frontend_workflow,
+          workspace_root: Path.join(root, "frontend-workspaces"),
+          project_slug: "frontend-project",
+          max_concurrent_agents: 10,
+          orchestrator: frontend_orchestrator
+        }
       ]
     }
 
@@ -195,7 +210,7 @@ defmodule SymphonyElixir.MultiProjectTest do
 
     assert {:ok, issue_payload} = Presenter.issue_payload("BE-1", nil, 50)
     assert issue_payload.project_id == "backend"
-    assert issue_payload.workspace.path == Path.join(Config.settings!(workflow_path: backend_workflow).workspace.root, "BE-1")
+    assert issue_payload.workspace.path == Path.join(Path.join(root, "backend-workspaces"), "BE-1")
 
     assert {:ok, refresh_payload} = Presenter.refresh_payload(nil)
     assert refresh_payload.queued == true
@@ -286,6 +301,141 @@ defmodule SymphonyElixir.MultiProjectTest do
 
     assert snapshot != :unavailable
     assert elapsed_us < 150_000
+  end
+
+  test "issue lookup runs project snapshots within one timeout window" do
+    backend_orchestrator = Module.concat(__MODULE__, :IssueLookupBackendOrchestrator)
+    frontend_orchestrator = Module.concat(__MODULE__, :IssueLookupFrontendOrchestrator)
+
+    {:ok, _backend_pid} =
+      start_supervised(%{
+        id: backend_orchestrator,
+        start:
+          {StaticOrchestrator, :start_link,
+           [
+             [
+               name: backend_orchestrator,
+               snapshot_delay_ms: 80,
+               snapshot: %{running: [], retrying: [], codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}, rate_limits: nil, polling: nil}
+             ]
+           ]}
+      })
+
+    {:ok, _frontend_pid} =
+      start_supervised(%{
+        id: frontend_orchestrator,
+        start:
+          {StaticOrchestrator, :start_link,
+           [
+             [
+               name: frontend_orchestrator,
+               snapshot_delay_ms: 80,
+               snapshot: %{
+                 running: [%{issue_id: "frontend-1", identifier: "FE-9", state: "In Progress"}],
+                 retrying: [],
+                 codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+                 rate_limits: nil,
+                 polling: nil
+               }
+             ]
+           ]}
+      })
+
+    assert :ok =
+             BootConfig.put(%{
+               manifest_path: "/tmp/SYMPHONY.md",
+               server: %Schema.Server{},
+               observability: %Schema.Observability{},
+               projects: [
+                 %{
+                   id: "backend",
+                   workflow_path: "/tmp/backend/WORKFLOW.md",
+                   workspace_root: "/tmp/backend-workspaces",
+                   project_slug: "backend",
+                   max_concurrent_agents: 10,
+                   orchestrator: backend_orchestrator
+                 },
+                 %{
+                   id: "frontend",
+                   workflow_path: "/tmp/frontend/WORKFLOW.md",
+                   workspace_root: "/tmp/frontend-workspaces",
+                   project_slug: "frontend",
+                   max_concurrent_agents: 10,
+                   orchestrator: frontend_orchestrator
+                 }
+               ]
+             })
+
+    {elapsed_us, result} = :timer.tc(fn -> Projects.find_issue("FE-9", 100) end)
+
+    assert {:ok, %{project: %{id: "frontend"}}} = result
+    assert elapsed_us < 150_000
+  end
+
+  test "issue payload uses cached project workspace metadata when workflow becomes invalid" do
+    backend_orchestrator = Module.concat(__MODULE__, :IssuePayloadBackendOrchestrator)
+
+    {:ok, _backend_pid} =
+      start_supervised(%{
+        id: backend_orchestrator,
+        start:
+          {StaticOrchestrator, :start_link,
+           [
+             [
+               name: backend_orchestrator,
+               snapshot: %{
+                 running: [
+                   %{
+                     issue_id: "backend-1",
+                     identifier: "BE-77",
+                     state: "In Progress",
+                     workspace_path: nil,
+                     session_id: "session-backend-77",
+                     started_at: DateTime.utc_now(),
+                     last_codex_event: nil,
+                     last_codex_message: nil,
+                     last_codex_timestamp: nil,
+                     codex_input_tokens: 0,
+                     codex_output_tokens: 0,
+                     codex_total_tokens: 0
+                   }
+                 ],
+                 retrying: [],
+                 codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+                 rate_limits: nil,
+                 polling: nil
+               }
+             ]
+           ]}
+      })
+
+    root = Path.join(System.tmp_dir!(), "symphony-project-fallback-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    workflow_path = Path.join(root, "backend/WORKFLOW.md")
+    File.mkdir_p!(Path.dirname(workflow_path))
+    write_workflow_file!(workflow_path, workspace_root: "./backend-workspaces")
+
+    assert :ok =
+             BootConfig.put(%{
+               manifest_path: "/tmp/SYMPHONY.md",
+               server: %Schema.Server{},
+               observability: %Schema.Observability{},
+               projects: [
+                 %{
+                   id: "backend",
+                   workflow_path: workflow_path,
+                   workspace_root: Path.join(root, "backend/backend-workspaces"),
+                   project_slug: "backend",
+                   max_concurrent_agents: 10,
+                   orchestrator: backend_orchestrator
+                 }
+               ]
+             })
+
+    File.write!(workflow_path, "---\ntracker: [\n---\nBroken prompt\n")
+
+    assert {:ok, issue_payload} = Presenter.issue_payload("BE-77", nil, 50)
+    assert issue_payload.workspace.path == Path.join(root, "backend/backend-workspaces/BE-77")
   end
 
   test "aggregate refresh returns unavailable when no project refresh was queued" do

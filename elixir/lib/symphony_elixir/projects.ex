@@ -86,29 +86,16 @@ defmodule SymphonyElixir.Projects do
   @spec find_issue(String.t(), timeout()) :: {:ok, map()} | {:error, :issue_not_found}
   def find_issue(issue_identifier, timeout) when is_binary(issue_identifier) do
     projects()
-    |> Enum.find_value(fn project ->
-      snapshot = Orchestrator.snapshot(orchestrator_name(project), timeout)
-
-      case snapshot do
-        %{running: running, retrying: retrying} ->
-          running_entry = Enum.find(running, &(&1.identifier == issue_identifier))
-          retry_entry = Enum.find(retrying, &(&1.identifier == issue_identifier))
-
-          if is_nil(running_entry) and is_nil(retry_entry) do
-            nil
-          else
-            {:ok,
-             %{
-               project: project,
-               snapshot: snapshot,
-               running: running_entry,
-               retry: retry_entry
-             }}
-          end
-
-        _ ->
-          nil
-      end
+    |> Task.async_stream(
+      fn project -> issue_snapshot_entry(project, issue_identifier, timeout) end,
+      timeout: timeout,
+      on_timeout: :kill_task,
+      ordered: false,
+      max_concurrency: max(length(projects()), 1)
+    )
+    |> Enum.find_value(fn
+      {:ok, {:ok, issue_data}} -> {:ok, issue_data}
+      _ -> nil
     end) || {:error, :issue_not_found}
   end
 
@@ -125,6 +112,31 @@ defmodule SymphonyElixir.Projects do
     do: max_agents
 
   def max_concurrent_agents(_project), do: nil
+
+  defp issue_snapshot_entry(project, issue_identifier, timeout) do
+    snapshot = Orchestrator.snapshot(orchestrator_name(project), timeout)
+
+    case snapshot do
+      %{running: running, retrying: retrying} = snapshot ->
+        running_entry = Enum.find(running, &(&1.identifier == issue_identifier))
+        retry_entry = Enum.find(retrying, &(&1.identifier == issue_identifier))
+
+        if is_nil(running_entry) and is_nil(retry_entry) do
+          :error
+        else
+          {:ok,
+           %{
+             project: project,
+             snapshot: snapshot,
+             running: running_entry,
+             retry: retry_entry
+           }}
+        end
+
+      _ ->
+        :error
+    end
+  end
 
   defp project_snapshot_entry(project, timeout) do
     project_id = project.id

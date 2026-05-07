@@ -121,7 +121,7 @@ defmodule SymphonyElixir.BootConfig do
           if MapSet.member?(ids, id) do
             {:halt, {:error, {:invalid_project_manifest, "projects[#{index}].id must be unique"}}}
           else
-            {:cont, {:ok, {MapSet.put(ids, id), acc ++ [resolved]}}}
+            {:cont, {:ok, {MapSet.put(ids, id), [resolved | acc]}}}
           end
 
         {:error, reason} ->
@@ -129,7 +129,7 @@ defmodule SymphonyElixir.BootConfig do
       end
     end)
     |> case do
-      {:ok, {_ids, resolved_projects}} -> {:ok, resolved_projects}
+      {:ok, {_ids, resolved_projects}} -> {:ok, Enum.reverse(resolved_projects)}
       {:error, reason} -> {:error, reason}
     end
   end

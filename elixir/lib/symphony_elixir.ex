@@ -19,7 +19,7 @@ defmodule SymphonyElixir.Application do
 
   use Application
 
-  alias SymphonyElixir.{BootConfig, Orchestrator, Projects, WorkflowStore}
+  alias SymphonyElixir.{BootConfig, Orchestrator, Projects, Workflow, WorkflowStore}
 
   @impl true
   def start(_type, _args) do
@@ -45,8 +45,38 @@ defmodule SymphonyElixir.Application do
   defp children_for(%{projects: projects}) do
     [
       {Phoenix.PubSub, name: SymphonyElixir.PubSub},
-      {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
-      WorkflowStore,
+      {Task.Supervisor, name: SymphonyElixir.TaskSupervisor}
+    ] ++
+      maybe_global_workflow_store_child() ++
+      [
+        project_runtime_supervisor(projects),
+        SymphonyElixir.HttpServer,
+        SymphonyElixir.StatusDashboard
+      ]
+  end
+
+  defp maybe_global_workflow_store_child do
+    if File.regular?(Workflow.workflow_file_path()) do
+      [WorkflowStore]
+    else
+      []
+    end
+  end
+
+  defp project_runtime_supervisor(projects) do
+    %{
+      id: SymphonyElixir.ProjectRuntimeSupervisor,
+      start:
+        {Supervisor, :start_link,
+         [
+           project_runtime_children(projects),
+           [strategy: :rest_for_one, name: SymphonyElixir.ProjectRuntimeSupervisor]
+         ]}
+    }
+  end
+
+  defp project_runtime_children(projects) do
+    [
       {Registry, keys: :unique, name: SymphonyElixir.ProjectRegistry}
     ] ++
       Enum.flat_map(projects, fn project ->
@@ -75,10 +105,6 @@ defmodule SymphonyElixir.Application do
                ]}
           }
         ]
-      end) ++
-      [
-        SymphonyElixir.HttpServer,
-        SymphonyElixir.StatusDashboard
-      ]
+      end)
   end
 end

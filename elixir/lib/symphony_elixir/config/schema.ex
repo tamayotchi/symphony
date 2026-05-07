@@ -446,9 +446,14 @@ defmodule SymphonyElixir.Config.Schema do
         assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
     }
 
+    workspace_root =
+      settings.workspace.root
+      |> resolve_path_value(Path.join(System.tmp_dir!(), "symphony_workspaces"))
+      |> normalize_workspace_root(opts)
+
     workspace = %{
       settings.workspace
-      | root: resolve_path_value(settings.workspace.root, Path.join(System.tmp_dir!(), "symphony_workspaces"))
+      | root: workspace_root
     }
 
     codex = %{
@@ -569,6 +574,25 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp normalize_optional_string(_value), do: nil
+
+  defp normalize_workspace_root(value, opts) when is_binary(value) and value != "" do
+    case {Keyword.get(opts, :workflow_path), plain_relative_workspace_root?(value)} do
+      {workflow_path, true} when is_binary(workflow_path) ->
+        workflow_dir = workflow_path |> Path.dirname() |> Path.expand()
+        Path.expand(value, workflow_dir)
+
+      _ ->
+        value
+    end
+  end
+
+  defp normalize_workspace_root(value, _opts) do
+    value || Path.join(System.tmp_dir!(), "symphony_workspaces")
+  end
+
+  defp plain_relative_workspace_root?(value) when is_binary(value) do
+    Path.type(value) == :relative and not String.starts_with?(value, ["~", "env:"])
+  end
 
   defp normalize_pi_session_dir_name(value) when is_binary(value) do
     trimmed = String.trim(value)
