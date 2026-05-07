@@ -6,7 +6,7 @@ defmodule SymphonyElixir.CLITest do
   test "defaults to SYMPHONY.md when manifest path is missing" do
     deps = %{
       file_regular?: fn path -> Path.basename(path) == "SYMPHONY.md" end,
-      set_workflow_file_path: fn _path -> :ok end,
+      set_manifest_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
@@ -17,15 +17,15 @@ defmodule SymphonyElixir.CLITest do
 
   test "uses an explicit manifest path override when provided" do
     parent = self()
-    workflow_path = "tmp/custom/SYMPHONY.md"
-    expanded_path = Path.expand(workflow_path)
+    manifest_path = "tmp/custom/SYMPHONY.md"
+    expanded_path = Path.expand(manifest_path)
 
     deps = %{
       file_regular?: fn path ->
         send(parent, {:workflow_checked, path})
         path == expanded_path
       end,
-      set_workflow_file_path: fn path ->
+      set_manifest_file_path: fn path ->
         send(parent, {:workflow_set, path})
         :ok
       end,
@@ -34,7 +34,7 @@ defmodule SymphonyElixir.CLITest do
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
-    assert :ok = CLI.evaluate([workflow_path], deps)
+    assert :ok = CLI.evaluate([manifest_path], deps)
     assert_received {:workflow_checked, ^expanded_path}
     assert_received {:workflow_set, ^expanded_path}
   end
@@ -44,7 +44,7 @@ defmodule SymphonyElixir.CLITest do
 
     deps = %{
       file_regular?: fn _path -> true end,
-      set_workflow_file_path: fn _path -> :ok end,
+      set_manifest_file_path: fn _path -> :ok end,
       set_logs_root: fn path ->
         send(parent, {:logs_root, path})
         :ok
@@ -61,7 +61,7 @@ defmodule SymphonyElixir.CLITest do
   test "returns not found when manifest file does not exist" do
     deps = %{
       file_regular?: fn _path -> false end,
-      set_workflow_file_path: fn _path -> :ok end,
+      set_manifest_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
@@ -74,7 +74,7 @@ defmodule SymphonyElixir.CLITest do
   test "returns startup error when app cannot start" do
     deps = %{
       file_regular?: fn _path -> true end,
-      set_workflow_file_path: fn _path -> :ok end,
+      set_manifest_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
       ensure_all_started: fn -> {:error, :boom} end
@@ -88,7 +88,7 @@ defmodule SymphonyElixir.CLITest do
   test "returns ok when workflow exists and app starts" do
     deps = %{
       file_regular?: fn _path -> true end,
-      set_workflow_file_path: fn _path -> :ok end,
+      set_manifest_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end

@@ -3,7 +3,7 @@ defmodule SymphonyElixir.Projects do
   Helpers for multi-project orchestration and observability aggregation.
   """
 
-  alias SymphonyElixir.{BootConfig, Config, Orchestrator}
+  alias SymphonyElixir.{BootConfig, Orchestrator}
 
   @spec enabled?() :: boolean()
   def enabled? do
@@ -36,13 +36,13 @@ defmodule SymphonyElixir.Projects do
         :unavailable
 
       projects ->
-        snapshots = Enum.map(projects, &project_snapshot_entry(&1, timeout))
+        snapshots = concurrent_project_entries(projects, timeout, &project_snapshot_entry/2)
 
         %{
           running: Enum.flat_map(snapshots, &Map.get(&1, :running, [])),
           retrying: Enum.flat_map(snapshots, &Map.get(&1, :retrying, [])),
           codex_totals: Enum.reduce(snapshots, empty_totals(), &sum_totals/2),
-          rate_limits: Map.new(snapshots, &{&1.project_id, &1.rate_limits}),
+          rate_limits: aggregate_rate_limits(snapshots),
           polling: %{
             checking?: Enum.any?(snapshots, &get_in(&1, [:polling, :checking?])),
             next_poll_in_ms: min_poll_in_ms(snapshots),
@@ -66,14 +66,20 @@ defmodule SymphonyElixir.Projects do
             {project.id, Orchestrator.request_refresh(orchestrator)}
           end)
 
-        {:ok,
-         %{
-           queued: true,
-           coalesced: Enum.all?(responses, fn {_id, response} -> response != :unavailable and response.coalesced end),
-           requested_at: DateTime.utc_now(),
-           operations: ["poll", "reconcile"],
-           projects: Enum.into(responses, %{}, fn {project_id, response} -> {project_id, response} end)
-         }}
+        queued_responses = Enum.reject(responses, fn {_project_id, response} -> response == :unavailable end)
+
+        if queued_responses == [] do
+          {:error, :unavailable}
+        else
+          {:ok,
+           %{
+             queued: true,
+             coalesced: Enum.all?(queued_responses, fn {_id, response} -> response.coalesced end),
+             requested_at: DateTime.utc_now(),
+             operations: ["poll", "reconcile"],
+             projects: Enum.into(responses, %{}, fn {project_id, response} -> {project_id, response} end)
+           }}
+        end
     end
   end
 
@@ -107,18 +113,18 @@ defmodule SymphonyElixir.Projects do
   end
 
   @spec workspace_root(map()) :: Path.t() | nil
-  def workspace_root(%{workflow_path: workflow_path}) when is_binary(workflow_path) do
-    Config.settings!(workflow_path: workflow_path).workspace.root
-  end
-
+  def workspace_root(%{workspace_root: workspace_root}) when is_binary(workspace_root), do: workspace_root
   def workspace_root(_project), do: nil
 
   @spec project_slug(map()) :: String.t() | nil
-  def project_slug(%{workflow_path: workflow_path}) when is_binary(workflow_path) do
-    Config.settings!(workflow_path: workflow_path).tracker.project_slug
-  end
-
+  def project_slug(%{project_slug: project_slug}) when is_binary(project_slug), do: project_slug
   def project_slug(_project), do: nil
+
+  @spec max_concurrent_agents(map()) :: pos_integer() | nil
+  def max_concurrent_agents(%{max_concurrent_agents: max_agents}) when is_integer(max_agents) and max_agents > 0,
+    do: max_agents
+
+  def max_concurrent_agents(_project), do: nil
 
   defp project_snapshot_entry(project, timeout) do
     project_id = project.id
@@ -198,5 +204,35 @@ defmodule SymphonyElixir.Projects do
       [] -> nil
       values -> Enum.min(values)
     end
+  end
+
+  defp aggregate_rate_limits([]), do: nil
+
+  defp aggregate_rate_limits([snapshot]) do
+    Map.get(snapshot, :rate_limits)
+  end
+
+  defp aggregate_rate_limits(snapshots) do
+    Map.new(snapshots, &{&1.project_id, &1.rate_limits})
+  end
+
+  defp concurrent_project_entries(projects, timeout, fun) when is_list(projects) and is_function(fun, 2) do
+    max_concurrency = max(length(projects), 1)
+
+    projects
+    |> Task.async_stream(fn project -> fun.(project, timeout) end,
+      timeout: timeout,
+      on_timeout: :kill_task,
+      ordered: true,
+      max_concurrency: max_concurrency
+    )
+    |> Enum.zip(projects)
+    |> Enum.map(fn
+      {{:ok, entry}, _project} ->
+        entry
+
+      {{:exit, _reason}, project} ->
+        unavailable_project(project.id, project, workspace_root(project), project_slug(project), :timeout)
+    end)
   end
 end

@@ -13,6 +13,9 @@ defmodule SymphonyElixir.BootConfig do
   @type project :: %{
           id: String.t(),
           workflow_path: Path.t(),
+          workspace_root: Path.t() | nil,
+          project_slug: String.t() | nil,
+          max_concurrent_agents: pos_integer() | nil,
           orchestrator: GenServer.name() | nil
         }
 
@@ -34,10 +37,24 @@ defmodule SymphonyElixir.BootConfig do
     :ok
   end
 
+  @manifest_env_key :manifest_file_path
+
   @spec manifest_file_path() :: Path.t()
   def manifest_file_path do
-    Application.get_env(:symphony_elixir, :workflow_file_path) ||
+    Application.get_env(:symphony_elixir, @manifest_env_key) ||
       Path.join(File.cwd!(), @manifest_file_name)
+  end
+
+  @spec set_manifest_file_path(Path.t()) :: :ok
+  def set_manifest_file_path(path) when is_binary(path) do
+    Application.put_env(:symphony_elixir, @manifest_env_key, path)
+    :ok
+  end
+
+  @spec clear_manifest_file_path() :: :ok
+  def clear_manifest_file_path do
+    Application.delete_env(:symphony_elixir, @manifest_env_key)
+    :ok
   end
 
   @spec load(Path.t()) :: {:ok, t()} | {:error, term()}
@@ -132,8 +149,18 @@ defmodule SymphonyElixir.BootConfig do
       true ->
         workflow_path = Path.expand(workflow, manifest_dir)
 
-        case Workflow.load(workflow_path) do
-          {:ok, _workflow} -> {:ok, %{id: id, workflow_path: workflow_path, orchestrator: nil}}
+        with {:ok, workflow} <- Workflow.load(workflow_path),
+             {:ok, settings} <- Schema.parse(workflow.config, workflow_path: workflow_path) do
+          {:ok,
+           %{
+             id: id,
+             workflow_path: workflow_path,
+             workspace_root: settings.workspace.root,
+             project_slug: settings.tracker.project_slug,
+             max_concurrent_agents: settings.agent.max_concurrent_agents,
+             orchestrator: nil
+           }}
+        else
           {:error, reason} -> {:error, "workflow #{workflow_path} failed to load: #{inspect(reason)}"}
         end
     end

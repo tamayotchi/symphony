@@ -56,7 +56,7 @@ defmodule SymphonyElixirWeb.Presenter do
         {:error, :unavailable}
 
       {:ok, payload} ->
-        {:ok, Map.update!(payload, :requested_at, &DateTime.to_iso8601/1)}
+        {:ok, refresh_payload_body(payload)}
     end
   end
 
@@ -217,6 +217,23 @@ defmodule SymphonyElixirWeb.Presenter do
       workspace_path_from_project(issue_identifier, project)
   end
 
+  defp refresh_payload_body(payload) when is_map(payload) do
+    payload
+    |> maybe_update(:requested_at, &DateTime.to_iso8601/1)
+    |> maybe_update(:projects, fn projects ->
+      Enum.into(projects, %{}, fn {project_id, response} ->
+        {project_id, serialize_refresh_response(response)}
+      end)
+    end)
+  end
+
+  defp serialize_refresh_response(%{} = response) do
+    maybe_update(response, :requested_at, &DateTime.to_iso8601/1)
+  end
+
+  defp serialize_refresh_response(:unavailable), do: %{queued: false, status: "unavailable"}
+  defp serialize_refresh_response(other), do: %{queued: false, status: to_string(other)}
+
   defp workspace_path_from_project(issue_identifier, %{workflow_path: workflow_path}) when is_binary(workflow_path) do
     Path.join(Config.settings!(workflow_path: workflow_path).workspace.root, issue_identifier)
   end
@@ -262,4 +279,11 @@ defmodule SymphonyElixirWeb.Presenter do
 
   defp maybe_put(payload, _key, value) when value in [nil, ""], do: payload
   defp maybe_put(payload, key, value), do: Map.put(payload, key, value)
+
+  defp maybe_update(map, key, fun) when is_map(map) and is_atom(key) and is_function(fun, 1) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> Map.put(map, key, fun.(value))
+      :error -> map
+    end
+  end
 end

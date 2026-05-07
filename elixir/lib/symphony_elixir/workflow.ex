@@ -135,10 +135,23 @@ defmodule SymphonyElixir.Workflow do
 
   defp workflow_store(opts) do
     cond do
-      Keyword.has_key?(opts, :workflow_store) -> Keyword.get(opts, :workflow_store)
-      Keyword.has_key?(opts, :workflow_path) -> nil
-      RuntimeContext.workflow_path() -> nil
-      true -> WorkflowStore
+      Keyword.has_key?(opts, :workflow_store) ->
+        Keyword.get(opts, :workflow_store)
+
+      project_id = Keyword.get(opts, :project_id) ->
+        WorkflowStore.project_store_name(project_id)
+
+      project_id = RuntimeContext.project_id() ->
+        WorkflowStore.project_store_name(project_id)
+
+      Keyword.has_key?(opts, :workflow_path) ->
+        nil
+
+      RuntimeContext.workflow_path() ->
+        nil
+
+      true ->
+        WorkflowStore
     end
   end
 end

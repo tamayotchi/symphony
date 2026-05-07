@@ -492,7 +492,9 @@ defmodule SymphonyElixir.StatusDashboard do
 
       projects ->
         Enum.reduce(projects, 0, fn project, total ->
-          total + Config.settings!(workflow_path: project.workflow_path).agent.max_concurrent_agents
+          total +
+            (Projects.max_concurrent_agents(project) ||
+               Config.settings!(workflow_path: project.workflow_path).agent.max_concurrent_agents)
         end)
     end
   end
@@ -957,21 +959,31 @@ defmodule SymphonyElixir.StatusDashboard do
   defp format_rate_limits(nil), do: colorize("unavailable", @ansi_gray)
 
   defp format_rate_limits(rate_limits) when is_map(rate_limits) do
-    limit_id =
-      map_value(rate_limits, ["limit_id", :limit_id, "limit_name", :limit_name]) ||
-        "unknown"
+    if aggregate_rate_limits_map?(rate_limits) do
+      rate_limits
+      |> Enum.sort_by(fn {project_id, _limits} -> to_string(project_id) end)
+      |> Enum.map_join(colorize("; ", @ansi_gray), fn {project_id, limits} ->
+        colorize(to_string(project_id), @ansi_magenta) <>
+          colorize(": ", @ansi_gray) <>
+          format_rate_limits(limits)
+      end)
+    else
+      limit_id =
+        map_value(rate_limits, ["limit_id", :limit_id, "limit_name", :limit_name]) ||
+          "unknown"
 
-    primary = format_rate_limit_bucket(map_value(rate_limits, ["primary", :primary]))
-    secondary = format_rate_limit_bucket(map_value(rate_limits, ["secondary", :secondary]))
-    credits = format_rate_limit_credits(map_value(rate_limits, ["credits", :credits]))
+      primary = format_rate_limit_bucket(map_value(rate_limits, ["primary", :primary]))
+      secondary = format_rate_limit_bucket(map_value(rate_limits, ["secondary", :secondary]))
+      credits = format_rate_limit_credits(map_value(rate_limits, ["credits", :credits]))
 
-    colorize(to_string(limit_id), @ansi_yellow) <>
-      colorize(" | ", @ansi_gray) <>
-      colorize("primary #{primary}", @ansi_cyan) <>
-      colorize(" | ", @ansi_gray) <>
-      colorize("secondary #{secondary}", @ansi_cyan) <>
-      colorize(" | ", @ansi_gray) <>
-      colorize(credits, @ansi_green)
+      colorize(to_string(limit_id), @ansi_yellow) <>
+        colorize(" | ", @ansi_gray) <>
+        colorize("primary #{primary}", @ansi_cyan) <>
+        colorize(" | ", @ansi_gray) <>
+        colorize("secondary #{secondary}", @ansi_cyan) <>
+        colorize(" | ", @ansi_gray) <>
+        colorize(credits, @ansi_green)
+    end
   end
 
   defp format_rate_limits(other) do
@@ -980,6 +992,13 @@ defmodule SymphonyElixir.StatusDashboard do
     |> truncate(80)
     |> colorize(@ansi_gray)
   end
+
+  defp aggregate_rate_limits_map?(rate_limits) when is_map(rate_limits) do
+    map_size(rate_limits) > 0 and
+      not Enum.any?(rate_limits, fn {key, _value} -> key in ["primary", :primary, "secondary", :secondary, "credits", :credits, "limit_id", :limit_id, "limit_name", :limit_name] end)
+  end
+
+  defp aggregate_rate_limits_map?(_rate_limits), do: false
 
   defp format_rate_limit_bucket(nil), do: "n/a"
 

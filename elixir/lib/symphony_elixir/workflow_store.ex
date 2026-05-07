@@ -22,6 +22,11 @@ defmodule SymphonyElixir.WorkflowStore do
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
+  @spec project_store_name(String.t()) :: GenServer.name()
+  def project_store_name(project_id) when is_binary(project_id) do
+    {:via, Registry, {SymphonyElixir.ProjectRegistry, {:workflow_store, project_id}}}
+  end
+
   @spec current(GenServer.server()) :: {:ok, Workflow.loaded_workflow()} | {:error, term()}
   def current(server \\ __MODULE__) do
     case GenServer.whereis(server) do

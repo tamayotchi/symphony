@@ -49,18 +49,34 @@ defmodule SymphonyElixir.Application do
       WorkflowStore,
       {Registry, keys: :unique, name: SymphonyElixir.ProjectRegistry}
     ] ++
-      Enum.map(projects, fn project ->
-        %{
-          id: {:orchestrator, project.id},
-          start:
-            {Orchestrator, :start_link,
-             [[
-               name: Projects.orchestrator_name(project),
-               project_id: project.id,
-               workflow_path: project.workflow_path
-             ]]}
-        }
-      end) ++ [
+      Enum.flat_map(projects, fn project ->
+        [
+          %{
+            id: {:workflow_store, project.id},
+            start:
+              {WorkflowStore, :start_link,
+               [
+                 [
+                   name: WorkflowStore.project_store_name(project.id),
+                   workflow_path: project.workflow_path
+                 ]
+               ]}
+          },
+          %{
+            id: {:orchestrator, project.id},
+            start:
+              {Orchestrator, :start_link,
+               [
+                 [
+                   name: Projects.orchestrator_name(project),
+                   project_id: project.id,
+                   workflow_path: project.workflow_path
+                 ]
+               ]}
+          }
+        ]
+      end) ++
+      [
         SymphonyElixir.HttpServer,
         SymphonyElixir.StatusDashboard
       ]
