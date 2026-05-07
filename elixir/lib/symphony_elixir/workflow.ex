@@ -3,13 +3,15 @@ defmodule SymphonyElixir.Workflow do
   Loads workflow configuration and prompt from WORKFLOW.md.
   """
 
-  alias SymphonyElixir.WorkflowStore
+  alias SymphonyElixir.{RuntimeContext, WorkflowStore}
 
   @workflow_file_name "WORKFLOW.md"
 
-  @spec workflow_file_path() :: Path.t()
-  def workflow_file_path do
-    Application.get_env(:symphony_elixir, :workflow_file_path) ||
+  @spec workflow_file_path(keyword()) :: Path.t()
+  def workflow_file_path(opts \\ []) do
+    Keyword.get(opts, :workflow_path) ||
+      RuntimeContext.workflow_path() ||
+      Application.get_env(:symphony_elixir, :workflow_file_path) ||
       Path.join(File.cwd!(), @workflow_file_name)
   end
 
@@ -28,19 +30,39 @@ defmodule SymphonyElixir.Workflow do
   end
 
   @type loaded_workflow :: %{
+          path: Path.t(),
           config: map(),
           prompt: String.t(),
           prompt_template: String.t()
         }
 
-  @spec current() :: {:ok, loaded_workflow()} | {:error, term()}
-  def current do
-    case Process.whereis(WorkflowStore) do
-      pid when is_pid(pid) ->
-        WorkflowStore.current()
+  @spec current(keyword()) :: {:ok, loaded_workflow()} | {:error, term()}
+  def current(opts \\ []) do
+    case workflow_store(opts) do
+      nil ->
+        load(workflow_file_path(opts))
 
-      _ ->
-        load()
+      store ->
+        case GenServer.whereis(store) do
+          pid when is_pid(pid) -> WorkflowStore.current(store)
+          _ -> load(workflow_file_path(opts))
+        end
+    end
+  end
+
+  @spec load(keyword()) :: {:ok, loaded_workflow()} | {:error, term()}
+  def load(opts) when is_list(opts) do
+    load(workflow_file_path(opts))
+  end
+
+  @spec load(Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}
+  def load(path) when is_binary(path) do
+    case File.read(path) do
+      {:ok, content} ->
+        parse(content, path)
+
+      {:error, reason} ->
+        {:error, {:missing_workflow_file, path, reason}}
     end
   end
 
@@ -49,18 +71,7 @@ defmodule SymphonyElixir.Workflow do
     load(workflow_file_path())
   end
 
-  @spec load(Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}
-  def load(path) when is_binary(path) do
-    case File.read(path) do
-      {:ok, content} ->
-        parse(content)
-
-      {:error, reason} ->
-        {:error, {:missing_workflow_file, path, reason}}
-    end
-  end
-
-  defp parse(content) do
+  defp parse(content, path) do
     {front_matter_lines, prompt_lines} = split_front_matter(content)
 
     case front_matter_yaml_to_map(front_matter_lines) do
@@ -69,6 +80,7 @@ defmodule SymphonyElixir.Workflow do
 
         {:ok,
          %{
+           path: Path.expand(path),
            config: front_matter,
            prompt: prompt,
            prompt_template: prompt
@@ -119,5 +131,14 @@ defmodule SymphonyElixir.Workflow do
     end
 
     :ok
+  end
+
+  defp workflow_store(opts) do
+    cond do
+      Keyword.has_key?(opts, :workflow_store) -> Keyword.get(opts, :workflow_store)
+      Keyword.has_key?(opts, :workflow_path) -> nil
+      RuntimeContext.workflow_path() -> nil
+      true -> WorkflowStore
+    end
   end
 end

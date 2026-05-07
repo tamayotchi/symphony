@@ -3,8 +3,8 @@ defmodule SymphonyElixir.Config do
   Runtime configuration loaded from `WORKFLOW.md`.
   """
 
+  alias SymphonyElixir.{BootConfig, Workflow}
   alias SymphonyElixir.Config.Schema
-  alias SymphonyElixir.Workflow
 
   @default_prompt_template """
   You are working on a Linear issue.
@@ -31,20 +31,20 @@ defmodule SymphonyElixir.Config do
           model_id: String.t()
         }
 
-  @spec settings() :: {:ok, Schema.t()} | {:error, term()}
-  def settings do
-    case Workflow.current() do
-      {:ok, %{config: config}} when is_map(config) ->
-        Schema.parse(config)
+  @spec settings(keyword()) :: {:ok, Schema.t()} | {:error, term()}
+  def settings(opts \\ []) do
+    case Workflow.current(opts) do
+      {:ok, %{config: config, path: workflow_path}} when is_map(config) ->
+        Schema.parse(config, workflow_path: workflow_path)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  @spec settings!() :: Schema.t()
-  def settings! do
-    case settings() do
+  @spec settings!(keyword()) :: Schema.t()
+  def settings!(opts \\ []) do
+    case settings(opts) do
       {:ok, settings} ->
         settings
 
@@ -77,9 +77,9 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  @spec workflow_prompt() :: String.t()
-  def workflow_prompt do
-    case Workflow.current() do
+  @spec workflow_prompt(keyword()) :: String.t()
+  def workflow_prompt(opts \\ []) do
+    case Workflow.current(opts) do
       {:ok, %{prompt_template: prompt}} ->
         if String.trim(prompt) == "", do: @default_prompt_template, else: prompt
 
@@ -92,13 +92,13 @@ defmodule SymphonyElixir.Config do
   def server_port do
     case Application.get_env(:symphony_elixir, :server_port_override) do
       port when is_integer(port) and port >= 0 -> port
-      _ -> settings!().server.port
+      _ -> (BootConfig.server_settings() || settings!().server).port
     end
   end
 
-  @spec validate!() :: :ok | {:error, term()}
-  def validate! do
-    with {:ok, settings} <- settings() do
+  @spec validate!(keyword()) :: :ok | {:error, term()}
+  def validate!(opts \\ []) do
+    with {:ok, settings} <- settings(opts) do
       validate_semantics(settings)
     end
   end

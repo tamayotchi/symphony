@@ -3,15 +3,15 @@ defmodule SymphonyElixirWeb.Presenter do
   Shared projections for the observability API and dashboard.
   """
 
-  alias SymphonyElixir.{Config, Orchestrator, StatusDashboard}
+  alias SymphonyElixir.{Config, Orchestrator, Projects, StatusDashboard}
 
-  @spec state_payload(GenServer.name(), timeout()) :: map()
+  @spec state_payload(GenServer.name() | nil, timeout()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-    case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
+    case snapshot(orchestrator, snapshot_timeout_ms) do
       %{} = snapshot ->
-        %{
+        base_payload = %{
           generated_at: generated_at,
           counts: %{
             running: length(snapshot.running),
@@ -23,6 +23,11 @@ defmodule SymphonyElixirWeb.Presenter do
           rate_limits: snapshot.rate_limits
         }
 
+        case Enum.map(Map.get(snapshot, :projects, []), &project_payload/1) do
+          [] -> base_payload
+          projects -> Map.put(base_payload, :projects, projects)
+        end
+
       :timeout ->
         %{generated_at: generated_at, error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
 
@@ -31,8 +36,47 @@ defmodule SymphonyElixirWeb.Presenter do
     end
   end
 
-  @spec issue_payload(String.t(), GenServer.name(), timeout()) :: {:ok, map()} | {:error, :issue_not_found}
+  @spec issue_payload(String.t(), GenServer.name() | nil, timeout()) :: {:ok, map()} | {:error, :issue_not_found}
   def issue_payload(issue_identifier, orchestrator, snapshot_timeout_ms) when is_binary(issue_identifier) do
+    with {:ok, issue_data} <- lookup_issue(issue_identifier, orchestrator, snapshot_timeout_ms) do
+      {:ok,
+       issue_payload_body(
+         issue_identifier,
+         issue_data.running,
+         issue_data.retry,
+         issue_data.project
+       )}
+    end
+  end
+
+  @spec refresh_payload(GenServer.name() | nil) :: {:ok, map()} | {:error, :unavailable}
+  def refresh_payload(orchestrator) do
+    case refresh(orchestrator) do
+      {:error, :unavailable} ->
+        {:error, :unavailable}
+
+      {:ok, payload} ->
+        {:ok, Map.update!(payload, :requested_at, &DateTime.to_iso8601/1)}
+    end
+  end
+
+  defp snapshot(nil, snapshot_timeout_ms), do: Projects.aggregate_snapshot(snapshot_timeout_ms)
+  defp snapshot(orchestrator, snapshot_timeout_ms), do: Orchestrator.snapshot(orchestrator, snapshot_timeout_ms)
+
+  defp refresh(nil), do: Projects.request_refresh()
+
+  defp refresh(orchestrator) do
+    case Orchestrator.request_refresh(orchestrator) do
+      :unavailable -> {:error, :unavailable}
+      payload -> {:ok, payload}
+    end
+  end
+
+  defp lookup_issue(issue_identifier, nil, snapshot_timeout_ms) do
+    Projects.find_issue(issue_identifier, snapshot_timeout_ms)
+  end
+
+  defp lookup_issue(issue_identifier, orchestrator, snapshot_timeout_ms) do
     case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
       %{} = snapshot ->
         running = Enum.find(snapshot.running, &(&1.identifier == issue_identifier))
@@ -41,7 +85,7 @@ defmodule SymphonyElixirWeb.Presenter do
         if is_nil(running) and is_nil(retry) do
           {:error, :issue_not_found}
         else
-          {:ok, issue_payload_body(issue_identifier, running, retry)}
+          {:ok, %{running: running, retry: retry, project: nil, snapshot: snapshot}}
         end
 
       _ ->
@@ -49,24 +93,13 @@ defmodule SymphonyElixirWeb.Presenter do
     end
   end
 
-  @spec refresh_payload(GenServer.name()) :: {:ok, map()} | {:error, :unavailable}
-  def refresh_payload(orchestrator) do
-    case Orchestrator.request_refresh(orchestrator) do
-      :unavailable ->
-        {:error, :unavailable}
-
-      payload ->
-        {:ok, Map.update!(payload, :requested_at, &DateTime.to_iso8601/1)}
-    end
-  end
-
-  defp issue_payload_body(issue_identifier, running, retry) do
+  defp issue_payload_body(issue_identifier, running, retry, project) do
     %{
       issue_identifier: issue_identifier,
       issue_id: issue_id_from_entries(running, retry),
       status: issue_status(running, retry),
       workspace: %{
-        path: workspace_path(issue_identifier, running, retry),
+        path: workspace_path(issue_identifier, running, retry, project),
         host: workspace_host(running, retry)
       },
       attempts: %{
@@ -82,6 +115,7 @@ defmodule SymphonyElixirWeb.Presenter do
       last_error: retry && retry.error,
       tracked: %{}
     }
+    |> maybe_put(:project_id, project && project.id)
   end
 
   defp issue_id_from_entries(running, retry),
@@ -94,6 +128,22 @@ defmodule SymphonyElixirWeb.Presenter do
   defp issue_status(_running, nil), do: "running"
   defp issue_status(nil, _retry), do: "retrying"
   defp issue_status(_running, _retry), do: "running"
+
+  defp project_payload(project) do
+    %{
+      project_id: project.project_id,
+      workflow_path: project.workflow_path,
+      project_slug: project.project_slug,
+      workspace_root: project.workspace_root,
+      status: to_string(project.status),
+      counts: %{
+        running: project.running_count,
+        retrying: project.retrying_count
+      },
+      codex_totals: project.codex_totals,
+      polling: project.polling
+    }
+  end
 
   defp running_entry_payload(entry) do
     %{
@@ -114,6 +164,7 @@ defmodule SymphonyElixirWeb.Presenter do
         total_tokens: entry.codex_total_tokens
       }
     }
+    |> maybe_put(:project_id, Map.get(entry, :project_id))
   end
 
   defp retry_entry_payload(entry) do
@@ -126,6 +177,7 @@ defmodule SymphonyElixirWeb.Presenter do
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path)
     }
+    |> maybe_put(:project_id, Map.get(entry, :project_id))
   end
 
   defp running_issue_payload(running) do
@@ -145,6 +197,7 @@ defmodule SymphonyElixirWeb.Presenter do
         total_tokens: running.codex_total_tokens
       }
     }
+    |> maybe_put(:project_id, Map.get(running, :project_id))
   end
 
   defp retry_issue_payload(retry) do
@@ -155,12 +208,21 @@ defmodule SymphonyElixirWeb.Presenter do
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path)
     }
+    |> maybe_put(:project_id, Map.get(retry, :project_id))
   end
 
-  defp workspace_path(issue_identifier, running, retry) do
+  defp workspace_path(issue_identifier, running, retry, project) do
     (running && Map.get(running, :workspace_path)) ||
       (retry && Map.get(retry, :workspace_path)) ||
-      Path.join(Config.settings!().workspace.root, issue_identifier)
+      workspace_path_from_project(issue_identifier, project)
+  end
+
+  defp workspace_path_from_project(issue_identifier, %{workflow_path: workflow_path}) when is_binary(workflow_path) do
+    Path.join(Config.settings!(workflow_path: workflow_path).workspace.root, issue_identifier)
+  end
+
+  defp workspace_path_from_project(issue_identifier, _project) do
+    Path.join(Config.settings!().workspace.root, issue_identifier)
   end
 
   defp workspace_host(running, retry) do
@@ -197,4 +259,7 @@ defmodule SymphonyElixirWeb.Presenter do
   end
 
   defp iso8601(_datetime), do: nil
+
+  defp maybe_put(payload, _key, value) when value in [nil, ""], do: payload
+  defp maybe_put(payload, key, value), do: Map.put(payload, key, value)
 end

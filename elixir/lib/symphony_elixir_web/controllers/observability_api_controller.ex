@@ -54,7 +54,7 @@ defmodule SymphonyElixirWeb.ObservabilityApiController do
   end
 
   defp orchestrator do
-    Endpoint.config(:orchestrator) || SymphonyElixir.Orchestrator
+    Endpoint.config(:orchestrator)
   end
 
   defp snapshot_timeout_ms do

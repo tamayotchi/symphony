@@ -3,9 +3,9 @@ defmodule SymphonyElixir.CLITest do
 
   alias SymphonyElixir.CLI
 
-  test "defaults to WORKFLOW.md when workflow path is missing" do
+  test "defaults to SYMPHONY.md when manifest path is missing" do
     deps = %{
-      file_regular?: fn path -> Path.basename(path) == "WORKFLOW.md" end,
+      file_regular?: fn path -> Path.basename(path) == "SYMPHONY.md" end,
       set_workflow_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
       set_server_port_override: fn _port -> :ok end,
@@ -15,9 +15,9 @@ defmodule SymphonyElixir.CLITest do
     assert :ok = CLI.evaluate([], deps)
   end
 
-  test "uses an explicit workflow path override when provided" do
+  test "uses an explicit manifest path override when provided" do
     parent = self()
-    workflow_path = "tmp/custom/WORKFLOW.md"
+    workflow_path = "tmp/custom/SYMPHONY.md"
     expanded_path = Path.expand(workflow_path)
 
     deps = %{
@@ -53,12 +53,12 @@ defmodule SymphonyElixir.CLITest do
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
-    assert :ok = CLI.evaluate(["--logs-root", "tmp/custom-logs", "WORKFLOW.md"], deps)
+    assert :ok = CLI.evaluate(["--logs-root", "tmp/custom-logs", "SYMPHONY.md"], deps)
     assert_received {:logs_root, expanded_path}
     assert expanded_path == Path.expand("tmp/custom-logs")
   end
 
-  test "returns not found when workflow file does not exist" do
+  test "returns not found when manifest file does not exist" do
     deps = %{
       file_regular?: fn _path -> false end,
       set_workflow_file_path: fn _path -> :ok end,
@@ -67,8 +67,8 @@ defmodule SymphonyElixir.CLITest do
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
-    assert {:error, message} = CLI.evaluate(["WORKFLOW.md"], deps)
-    assert message =~ "Workflow file not found:"
+    assert {:error, message} = CLI.evaluate(["SYMPHONY.md"], deps)
+    assert message =~ "Manifest file not found:"
   end
 
   test "returns startup error when app cannot start" do
@@ -80,8 +80,8 @@ defmodule SymphonyElixir.CLITest do
       ensure_all_started: fn -> {:error, :boom} end
     }
 
-    assert {:error, message} = CLI.evaluate(["WORKFLOW.md"], deps)
-    assert message =~ "Failed to start Symphony with workflow"
+    assert {:error, message} = CLI.evaluate(["SYMPHONY.md"], deps)
+    assert message =~ "Failed to start Symphony with manifest"
     assert message =~ ":boom"
   end
 
@@ -94,6 +94,6 @@ defmodule SymphonyElixir.CLITest do
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
-    assert :ok = CLI.evaluate(["WORKFLOW.md"], deps)
+    assert :ok = CLI.evaluate(["SYMPHONY.md"], deps)
   end
 end

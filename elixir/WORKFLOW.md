@@ -33,6 +33,7 @@ agent:
 pi:
   command: pi
   session_dir_name: .pi-rpc-sessions
+  append_system_prompt: ""
   extension_paths:
     - ../extensions/workspace-guard/index.ts
     - ../extensions/proof/index.ts
@@ -43,9 +44,6 @@ pi:
     provider: github-copilot
     model_id: gpt-5.4
   thinking_level: low
-server:
-  port: 4040
-  host: 127.0.0.1
 ---
 
 You are working on a Linear ticket `{{ issue.identifier }}`

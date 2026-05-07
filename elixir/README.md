@@ -34,21 +34,25 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
    [Harness engineering](https://openai.com/index/harness-engineering/).
 2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and
    set it as the `LINEAR_API_KEY` environment variable.
-3. Copy this directory's `WORKFLOW.md` to your repo.
-4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
+3. Copy this directory's `SYMPHONY.md` and `WORKFLOW.md` templates to your control repo (or create
+   your own `SYMPHONY.md` manifest and one `WORKFLOW.md` per project).
+4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to each repo that will
+   be worked on by Symphony.
    - The `linear` skill expects a `linear_graphql` tool for raw Linear GraphQL operations such as
      comment editing or upload flows. Codex gets it from the app-server runtime; Pi gets it from
      the repo-level `extensions/linear-graphql` extension.
    - If you plan to run Pi workers, also copy the repo-level `extensions/` directory (or at least
      the `workspace-guard`, `proof`, `linear-graphql`, and `shared` subdirectories) next to your
      workflow file, or adjust `pi.extension_paths` accordingly.
-5. Customize the copied `WORKFLOW.md` file for your project.
-   - To get your project's slug, right-click the project and copy its URL. The slug is part of the
+5. Customize one `WORKFLOW.md` per project.
+   - To get a project's slug, right-click the project and copy its URL. The slug is part of the
      URL.
    - When creating a workflow based on this repo, note that it depends on non-standard Linear
      issue statuses: "Rework", "Human Review", and "Merging". You can customize them in
      Team Settings → Workflow in Linear.
-6. Follow the instructions below to install the required runtime dependencies and start the service.
+6. Customize `SYMPHONY.md` with the list of projects/workflows you want the single Symphony node to
+   manage.
+7. Follow the instructions below to install the required runtime dependencies and start the service.
 
 ## Prerequisites
 
@@ -68,26 +72,48 @@ mise trust
 mise install
 mise exec -- mix setup
 mise exec -- mix build
-mise exec -- ./bin/symphony ./WORKFLOW.md
+mise exec -- ./bin/symphony ./SYMPHONY.md
 ```
 
 ## Configuration
 
-Pass a custom workflow file path to `./bin/symphony` when starting the service:
+Pass a custom manifest path to `./bin/symphony` when starting the service:
 
 ```bash
-./bin/symphony /path/to/custom/WORKFLOW.md
+./bin/symphony /path/to/custom/SYMPHONY.md
 ```
 
-If no path is passed, Symphony defaults to `./WORKFLOW.md`.
+If no path is passed, Symphony defaults to `./SYMPHONY.md`.
+
+Manifest example:
+
+```md
+---
+server:
+  host: 127.0.0.1
+  port: 4040
+projects:
+  - id: backend
+    workflow: /repos/backend/WORKFLOW.md
+  - id: frontend
+    workflow: /repos/frontend/WORKFLOW.md
+  - id: mobile
+    workflow: /repos/mobile/WORKFLOW.md
+---
+One dashboard, many project workflows.
+```
+
+Symphony boots one orchestrator per listed workflow inside one BEAM node and exposes a single
+aggregated dashboard/API. A one-project deployment is just a manifest with one `projects:` entry.
 
 Optional flags:
 
 - `--logs-root` tells Symphony to write logs under a different directory (default: `./log`)
 - `--port` also starts the Phoenix observability service (default: disabled)
 
-The `WORKFLOW.md` file uses YAML front matter for configuration, plus a Markdown body used as the
-worker session prompt.
+`SYMPHONY.md` is the startup/control-plane manifest. Each project `WORKFLOW.md` uses YAML front
+matter for project-specific configuration plus a Markdown body used as that worker's session
+prompt.
 
 Minimal Codex example:
 
@@ -119,7 +145,9 @@ Minimal Pi example:
 > point to `../extensions/...` because the extensions live at the repository root, outside the
 > Elixir app directory. If you copy the workflow to another location, keep in mind that
 > `pi.extension_paths` resolve relative to that workflow file.
-
+>
+> `pi.append_system_prompt: ""` intentionally passes `--append-system-prompt ""` so Pi does not
+> load a discovered `APPEND_SYSTEM.md` prompt into Symphony-managed sessions.
 
 ```md
 ---
@@ -139,6 +167,7 @@ agent:
 pi:
   command: pi
   session_dir_name: .pi-rpc-sessions
+  append_system_prompt: ""
   extension_paths:
     - ./extensions/workspace-guard/index.ts
     - ./extensions/proof/index.ts
@@ -216,11 +245,12 @@ pi:
   thinking_level: high
 ```
 
-- If `WORKFLOW.md` is missing or has invalid YAML at startup, Symphony does not boot.
-- If a later reload fails, Symphony keeps running with the last known good workflow and logs the
-  reload error until the file is fixed.
+- If `SYMPHONY.md` is missing or has invalid YAML, Symphony does not boot.
+- Each project entry in `SYMPHONY.md` must point to a valid `WORKFLOW.md`.
 - `server.port` or CLI `--port` enables the optional Phoenix LiveView dashboard and JSON API at
   `/`, `/api/v1/state`, `/api/v1/<issue_identifier>`, and `/api/v1/refresh`.
+- In multi-project mode, `/api/v1/state` is aggregated across all configured projects and the
+  dashboard shows per-project runtime cards plus combined running/retry queues.
 
 ## Web dashboard
 
@@ -235,7 +265,8 @@ The observability UI now runs on a minimal Phoenix stack:
 
 - `lib/`: application code and Mix tasks
 - `test/`: ExUnit coverage for runtime behavior
-- `WORKFLOW.md`: in-repo workflow contract used by local runs
+- `SYMPHONY.md`: startup manifest that lists all managed projects/workflows
+- `WORKFLOW.md`: per-project workflow contract used by each orchestrator
 - `../extensions/`: repo-level Pi worker extensions for `workspace-guard`, `proof`, and `linear-graphql`
 - `../.codex/`: repository-local Codex skills and setup helpers
 

@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Orchestrator do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
+  alias SymphonyElixir.{AgentRunner, Config, RuntimeContext, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Linear.Issue
 
   @continuation_retry_delay_ms 1_000
@@ -33,6 +33,8 @@ defmodule SymphonyElixir.Orchestrator do
       :poll_check_in_progress,
       :tick_timer_ref,
       :tick_token,
+      :project_id,
+      :workflow_path,
       running: %{},
       completed: MapSet.new(),
       claimed: MapSet.new(),
@@ -49,7 +51,11 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
+    project_id = Keyword.get(opts, :project_id)
+    workflow_path = Keyword.get(opts, :workflow_path)
+    :ok = RuntimeContext.put(context_from_opts(project_id, workflow_path))
+
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
 
@@ -60,6 +66,8 @@ defmodule SymphonyElixir.Orchestrator do
       poll_check_in_progress: false,
       tick_timer_ref: nil,
       tick_token: nil,
+      project_id: project_id,
+      workflow_path: workflow_path,
       codex_totals: @empty_codex_totals,
       codex_rate_limits: nil
     }
@@ -691,8 +699,12 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
+    runtime_context = context_from_state(state)
+
     case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
-           AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host)
+           RuntimeContext.with_context(runtime_context, fn ->
+             AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host)
+           end)
          end) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
@@ -1073,7 +1085,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   @spec request_refresh(GenServer.server()) :: map() | :unavailable
   def request_refresh(server) do
-    if Process.whereis(server) do
+    if GenServer.whereis(server) do
       GenServer.call(server, :request_refresh)
     else
       :unavailable
@@ -1085,7 +1097,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   @spec snapshot(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
   def snapshot(server, timeout) do
-    if Process.whereis(server) do
+    if GenServer.whereis(server) do
       try do
         GenServer.call(server, :snapshot, timeout)
       catch
@@ -1652,4 +1664,17 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp integer_like(_value), do: nil
+
+  defp context_from_state(%State{} = state) do
+    context_from_opts(state.project_id, state.workflow_path)
+  end
+
+  defp context_from_opts(project_id, workflow_path) do
+    %{}
+    |> maybe_put_context(:project_id, project_id)
+    |> maybe_put_context(:workflow_path, workflow_path)
+  end
+
+  defp maybe_put_context(context, _key, value) when value in [nil, ""], do: context
+  defp maybe_put_context(context, key, value), do: Map.put(context, key, value)
 end

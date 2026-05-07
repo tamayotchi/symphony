@@ -6,7 +6,7 @@ defmodule SymphonyElixir.StatusDashboard do
   use GenServer
   require Logger
 
-  alias SymphonyElixir.{Config, HttpServer}
+  alias SymphonyElixir.{BootConfig, Config, HttpServer, Projects}
   alias SymphonyElixir.Orchestrator
   alias SymphonyElixirWeb.ObservabilityPubSub
 
@@ -99,7 +99,7 @@ defmodule SymphonyElixir.StatusDashboard do
     refresh_ms_override = keyword_override(opts, :refresh_ms)
     enabled_override = keyword_override(opts, :enabled)
     render_interval_ms_override = keyword_override(opts, :render_interval_ms)
-    observability = Config.settings!().observability
+    observability = observability_settings()
     refresh_ms = refresh_ms_override || observability.refresh_ms
     render_interval_ms = render_interval_ms_override || observability.render_interval_ms
     render_fun = Keyword.get(opts, :render_fun, &render_to_terminal/1)
@@ -177,7 +177,7 @@ defmodule SymphonyElixir.StatusDashboard do
   def handle_info(:tick, state), do: {:noreply, state}
 
   defp refresh_runtime_config(%__MODULE__{} = state) do
-    observability = Config.settings!().observability
+    observability = observability_settings()
 
     %{
       state
@@ -341,7 +341,7 @@ defmodule SymphonyElixir.StatusDashboard do
         codex_total_tokens = Map.get(codex_totals, :total_tokens, 0)
         codex_seconds_running = Map.get(codex_totals, :seconds_running, 0)
         agent_count = length(running)
-        max_agents = Config.settings!().agent.max_concurrent_agents
+        max_agents = max_agents()
         running_event_width = running_event_width(terminal_columns_override)
         running_rows = format_running_rows(running, running_event_width)
         running_to_backoff_spacer = if(running == [], do: [], else: ["│"])
@@ -393,16 +393,14 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp format_project_link_lines do
-    project_part =
-      case Config.settings!().tracker.project_slug do
-        project_slug when is_binary(project_slug) and project_slug != "" ->
-          colorize(linear_project_url(project_slug), @ansi_cyan)
+    project_ids =
+      Projects.projects()
+      |> Enum.map(& &1.id)
+      |> Enum.join(", ")
 
-        _ ->
-          colorize("n/a", @ansi_gray)
-      end
-
-    project_line = colorize("│ Project: ", @ansi_bold) <> project_part
+    project_line =
+      colorize("│ Projects: ", @ansi_bold) <>
+        colorize(if(project_ids == "", do: fallback_project_label(), else: project_ids), project_line_color(project_ids))
 
     case dashboard_url() do
       url when is_binary(url) ->
@@ -429,8 +427,26 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp linear_project_url(project_slug), do: "https://linear.app/project/#{project_slug}/issues"
 
+  defp fallback_project_label do
+    case Config.settings!().tracker.project_slug do
+      project_slug when is_binary(project_slug) and project_slug != "" -> linear_project_url(project_slug)
+      _ -> "n/a"
+    end
+  rescue
+    _error -> "n/a"
+  end
+
+  defp project_line_color(project_ids) when is_binary(project_ids) and project_ids != "", do: @ansi_cyan
+  defp project_line_color(_project_ids), do: @ansi_gray
+
   defp dashboard_url do
-    dashboard_url(Config.settings!().server.host, Config.server_port(), HttpServer.bound_port())
+    host =
+      case BootConfig.server_settings() do
+        nil -> Config.settings!().server.host
+        server -> server.host
+      end
+
+    dashboard_url(host, Config.server_port(), HttpServer.bound_port())
   end
 
   defp dashboard_url(_host, nil, _bound_port), do: nil
@@ -462,6 +478,22 @@ defmodule SymphonyElixir.StatusDashboard do
 
       true ->
         trimmed_host
+    end
+  end
+
+  defp observability_settings do
+    BootConfig.observability_settings() || Config.settings!().observability
+  end
+
+  defp max_agents do
+    case Projects.projects() do
+      [] ->
+        Config.settings!().agent.max_concurrent_agents
+
+      projects ->
+        Enum.reduce(projects, 0, fn project, total ->
+          total + Config.settings!(workflow_path: project.workflow_path).agent.max_concurrent_agents
+        end)
     end
   end
 
@@ -548,28 +580,30 @@ defmodule SymphonyElixir.StatusDashboard do
     do: dashboard_url(host, configured_port, bound_port)
 
   defp snapshot_payload do
-    if Process.whereis(Orchestrator) do
-      case Orchestrator.snapshot() do
-        %{
-          running: running,
-          retrying: retrying,
-          codex_totals: codex_totals
-        } = snapshot
-        when is_list(running) and is_list(retrying) ->
-          {:ok,
-           %{
-             running: running,
-             retrying: retrying,
-             codex_totals: codex_totals,
-             rate_limits: Map.get(snapshot, :rate_limits),
-             polling: Map.get(snapshot, :polling)
-           }}
-
-        _ ->
-          :error
+    snapshot =
+      case Projects.aggregate_snapshot(15_000) do
+        :unavailable -> if Process.whereis(Orchestrator), do: Orchestrator.snapshot(), else: :unavailable
+        aggregate -> aggregate
       end
-    else
-      :error
+
+    case snapshot do
+      %{
+        running: running,
+        retrying: retrying,
+        codex_totals: codex_totals
+      } = snapshot
+      when is_list(running) and is_list(retrying) ->
+        {:ok,
+         %{
+           running: running,
+           retrying: retrying,
+           codex_totals: codex_totals,
+           rate_limits: Map.get(snapshot, :rate_limits),
+           polling: Map.get(snapshot, :polling)
+         }}
+
+      _ ->
+        :error
     end
   end
 

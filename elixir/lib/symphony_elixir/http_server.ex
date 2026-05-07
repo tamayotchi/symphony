@@ -3,7 +3,7 @@ defmodule SymphonyElixir.HttpServer do
   Compatibility facade that starts the Phoenix observability endpoint when enabled.
   """
 
-  alias SymphonyElixir.{Config, Orchestrator}
+  alias SymphonyElixir.{BootConfig, Config}
   alias SymphonyElixirWeb.Endpoint
 
   @secret_key_bytes 48
@@ -18,10 +18,10 @@ defmodule SymphonyElixir.HttpServer do
 
   @spec start_link(keyword()) :: GenServer.on_start() | :ignore
   def start_link(opts \\ []) do
-    case Keyword.get(opts, :port, Config.server_port()) do
+    case Keyword.get(opts, :port, default_port()) do
       port when is_integer(port) and port >= 0 ->
-        host = Keyword.get(opts, :host, Config.settings!().server.host)
-        orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
+        host = Keyword.get(opts, :host, default_host())
+        orchestrator = Keyword.get(opts, :orchestrator, default_orchestrator())
         snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
 
         with {:ok, ip} <- parse_host(host) do
@@ -59,6 +59,19 @@ defmodule SymphonyElixir.HttpServer do
   catch
     :exit, _reason -> nil
   end
+
+  defp default_port do
+    case Application.get_env(:symphony_elixir, :server_port_override) do
+      port when is_integer(port) and port >= 0 -> port
+      _ -> (BootConfig.server_settings() || Config.settings!().server).port
+    end
+  end
+
+  defp default_host do
+    (BootConfig.server_settings() || Config.settings!().server).host
+  end
+
+  defp default_orchestrator, do: nil
 
   defp parse_host({_, _, _, _} = ip), do: {:ok, ip}
   defp parse_host({_, _, _, _, _, _, _, _} = ip), do: {:ok, ip}

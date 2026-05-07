@@ -118,6 +118,7 @@ defmodule SymphonyElixir.TestSupport do
           pi_command: nil,
           pi_response_timeout_ms: nil,
           pi_session_dir_name: nil,
+          pi_append_system_prompt: nil,
           pi_extension_paths: nil,
           pi_disable_extensions: nil,
           pi_disable_themes: nil,
@@ -165,6 +166,7 @@ defmodule SymphonyElixir.TestSupport do
     pi_command = Keyword.get(config, :pi_command)
     pi_response_timeout_ms = Keyword.get(config, :pi_response_timeout_ms)
     pi_session_dir_name = Keyword.get(config, :pi_session_dir_name)
+    pi_append_system_prompt = Keyword.get(config, :pi_append_system_prompt)
     pi_extension_paths = Keyword.get(config, :pi_extension_paths)
     pi_disable_extensions = Keyword.get(config, :pi_disable_extensions)
     pi_disable_themes = Keyword.get(config, :pi_disable_themes)
@@ -216,6 +218,7 @@ defmodule SymphonyElixir.TestSupport do
           pi_command,
           pi_response_timeout_ms,
           pi_session_dir_name,
+          pi_append_system_prompt,
           pi_extension_paths,
           pi_disable_extensions,
           pi_disable_themes,
@@ -287,12 +290,12 @@ defmodule SymphonyElixir.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp pi_yaml(command, response_timeout_ms, session_dir_name, extension_paths, disable_extensions, disable_themes, model_provider, model_id, thinking_level)
-       when is_nil(command) and is_nil(response_timeout_ms) and is_nil(session_dir_name) and extension_paths in [nil, []] and is_nil(disable_extensions) and is_nil(disable_themes) and
-              is_nil(model_provider) and is_nil(model_id) and is_nil(thinking_level),
+  defp pi_yaml(command, response_timeout_ms, session_dir_name, append_system_prompt, extension_paths, disable_extensions, disable_themes, model_provider, model_id, thinking_level)
+       when is_nil(command) and is_nil(response_timeout_ms) and is_nil(session_dir_name) and is_nil(append_system_prompt) and extension_paths in [nil, []] and
+              is_nil(disable_extensions) and is_nil(disable_themes) and is_nil(model_provider) and is_nil(model_id) and is_nil(thinking_level),
        do: nil
 
-  defp pi_yaml(command, response_timeout_ms, session_dir_name, extension_paths, disable_extensions, disable_themes, model_provider, model_id, thinking_level) do
+  defp pi_yaml(command, response_timeout_ms, session_dir_name, append_system_prompt, extension_paths, disable_extensions, disable_themes, model_provider, model_id, thinking_level) do
     model_yaml =
       cond do
         is_binary(model_provider) and is_binary(model_id) ->
@@ -311,6 +314,7 @@ defmodule SymphonyElixir.TestSupport do
       command && "  command: #{yaml_value(command)}",
       response_timeout_ms && "  response_timeout_ms: #{yaml_value(response_timeout_ms)}",
       session_dir_name && "  session_dir_name: #{yaml_value(session_dir_name)}",
+      !is_nil(append_system_prompt) && "  append_system_prompt: #{yaml_value(append_system_prompt)}",
       extension_paths not in [nil, []] && "  extension_paths: #{yaml_value(extension_paths)}",
       !is_nil(disable_extensions) && "  disable_extensions: #{yaml_value(disable_extensions)}",
       !is_nil(disable_themes) && "  disable_themes: #{yaml_value(disable_themes)}",

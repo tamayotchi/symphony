@@ -343,6 +343,7 @@ defmodule SymphonyElixir.Pi.RpcClient do
         pi.command,
         "--mode rpc",
         "--session-dir #{shell_escape(session_dir)}",
+        append_system_prompt_flag(pi.append_system_prompt),
         pi.disable_extensions && "--no-extensions",
         pi.disable_themes && "--no-themes"
       ] ++ Enum.map(pi.extension_paths, &"--extension #{shell_escape(&1)}")
@@ -355,6 +356,12 @@ defmodule SymphonyElixir.Pi.RpcClient do
     all_assignments = headless_git_env_assignments() ++ tracker_env_assignments(settings)
 
     "exec env #{Enum.join(all_assignments, " ")} #{flags}"
+  end
+
+  defp append_system_prompt_flag(nil), do: nil
+
+  defp append_system_prompt_flag(prompt) when is_binary(prompt) do
+    "--append-system-prompt #{shell_escape(prompt)}"
   end
 
   defp send_message(port, message) do
