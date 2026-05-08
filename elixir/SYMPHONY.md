@@ -7,4 +7,3 @@ projects:
   - id: symphony
     workflow: ./WORKFLOW.md
 ---
-Default Symphony startup manifest for the local Symphony workflow.

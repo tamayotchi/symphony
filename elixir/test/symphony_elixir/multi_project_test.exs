@@ -5,7 +5,7 @@ defmodule SymphonyElixir.MultiProjectTest do
   import Phoenix.LiveViewTest
 
   alias SymphonyElixir.{BootConfig, Projects, RuntimeContext, Workflow, WorkflowStore}
-  alias SymphonyElixir.Config.Schema
+  alias SymphonyElixir.Manifest.Schema
   alias SymphonyElixirWeb.Presenter
 
   @endpoint SymphonyElixirWeb.Endpoint

@@ -440,11 +440,7 @@ defmodule SymphonyElixir.StatusDashboard do
   defp project_line_color(_project_ids), do: @ansi_gray
 
   defp dashboard_url do
-    host =
-      case BootConfig.server_settings() do
-        nil -> Config.settings!().server.host
-        server -> server.host
-      end
+    host = BootConfig.server_settings().host
 
     dashboard_url(host, Config.server_port(), HttpServer.bound_port())
   end
@@ -482,7 +478,7 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp observability_settings do
-    BootConfig.observability_settings() || Config.settings!().observability
+    BootConfig.observability_settings()
   end
 
   defp max_agents do
@@ -492,9 +488,7 @@ defmodule SymphonyElixir.StatusDashboard do
 
       projects ->
         Enum.reduce(projects, 0, fn project, total ->
-          total +
-            (Projects.max_concurrent_agents(project) ||
-               Config.settings!(workflow_path: project.workflow_path).agent.max_concurrent_agents)
+          total + (Projects.max_concurrent_agents(project) || Config.settings!(project_id: project.id).agent.max_concurrent_agents)
         end)
     end
   end

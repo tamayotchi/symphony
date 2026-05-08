@@ -3,7 +3,7 @@ defmodule SymphonyElixir.HttpServer do
   Compatibility facade that starts the Phoenix observability endpoint when enabled.
   """
 
-  alias SymphonyElixir.{BootConfig, Config}
+  alias SymphonyElixir.BootConfig
   alias SymphonyElixirWeb.Endpoint
 
   @secret_key_bytes 48
@@ -63,12 +63,12 @@ defmodule SymphonyElixir.HttpServer do
   defp default_port do
     case Application.get_env(:symphony_elixir, :server_port_override) do
       port when is_integer(port) and port >= 0 -> port
-      _ -> (BootConfig.server_settings() || Config.settings!().server).port
+      _ -> BootConfig.server_settings().port
     end
   end
 
   defp default_host do
-    (BootConfig.server_settings() || Config.settings!().server).host
+    BootConfig.server_settings().host
   end
 
   defp default_orchestrator, do: nil

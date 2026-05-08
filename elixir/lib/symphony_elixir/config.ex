@@ -92,7 +92,7 @@ defmodule SymphonyElixir.Config do
   def server_port do
     case Application.get_env(:symphony_elixir, :server_port_override) do
       port when is_integer(port) and port >= 0 -> port
-      _ -> (BootConfig.server_settings() || settings!().server).port
+      _ -> BootConfig.server_settings().port
     end
   end
 
