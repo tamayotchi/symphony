@@ -19,22 +19,17 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
   end
 
   test "snapshot fixture: idle dashboard with observability url" do
-    previous_boot_config = Application.get_env(:symphony_elixir, :boot_config)
+    previous_port_override = Application.get_env(:symphony_elixir, :server_port_override)
 
     on_exit(fn ->
-      if is_nil(previous_boot_config) do
-        Application.delete_env(:symphony_elixir, :boot_config)
+      if is_nil(previous_port_override) do
+        Application.delete_env(:symphony_elixir, :server_port_override)
       else
-        Application.put_env(:symphony_elixir, :boot_config, previous_boot_config)
+        Application.put_env(:symphony_elixir, :server_port_override, previous_port_override)
       end
     end)
 
-    SymphonyElixir.BootConfig.put(%{
-      manifest_path: "/tmp/SYMPHONY.md",
-      projects: [%{id: "symphony", workflow_path: "/tmp/WORKFLOW.md", orchestrator: nil}],
-      server: %SymphonyElixir.Manifest.Schema.Server{host: "127.0.0.1", port: 4000},
-      observability: %SymphonyElixir.Manifest.Schema.Observability{}
-    })
+    Application.put_env(:symphony_elixir, :server_port_override, 4000)
 
     snapshot_data =
       {:ok,

@@ -90,7 +90,10 @@ defmodule SymphonyElixir.Config do
 
   @spec server_port() :: non_neg_integer() | nil
   def server_port do
-    BootConfig.server_settings().port
+    case Application.get_env(:symphony_elixir, :server_port_override) do
+      port when is_integer(port) and port >= 0 -> port
+      _ -> BootConfig.server_settings().port
+    end
   end
 
   @spec validate!(keyword()) :: :ok | {:error, term()}

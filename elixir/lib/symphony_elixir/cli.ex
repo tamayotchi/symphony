@@ -5,13 +5,14 @@ defmodule SymphonyElixir.CLI do
 
   alias SymphonyElixir.{BootConfig, LogFile}
 
-  @switches [logs_root: :string]
+  @switches [logs_root: :string, port: :integer]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
           file_regular?: (String.t() -> boolean()),
           set_manifest_file_path: (String.t() -> :ok | {:error, term()}),
           set_logs_root: (String.t() -> :ok | {:error, term()}),
+          set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
           ensure_all_started: (-> ensure_started_result())
         }
 
@@ -31,12 +32,14 @@ defmodule SymphonyElixir.CLI do
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
       {opts, [], []} ->
-        with :ok <- maybe_set_logs_root(opts, deps) do
+        with :ok <- maybe_set_logs_root(opts, deps),
+             :ok <- maybe_set_server_port(opts, deps) do
           run(Path.expand("SYMPHONY.md"), deps)
         end
 
       {opts, [manifest_path], []} ->
-        with :ok <- maybe_set_logs_root(opts, deps) do
+        with :ok <- maybe_set_logs_root(opts, deps),
+             :ok <- maybe_set_server_port(opts, deps) do
           run(manifest_path, deps)
         end
 
@@ -66,7 +69,7 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [path-to-SYMPHONY.md]"
+    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-SYMPHONY.md]"
   end
 
   @spec runtime_deps() :: deps()
@@ -75,6 +78,7 @@ defmodule SymphonyElixir.CLI do
       file_regular?: &File.regular?/1,
       set_manifest_file_path: &BootConfig.set_manifest_file_path/1,
       set_logs_root: &set_logs_root/1,
+      set_server_port_override: &set_server_port_override/1,
       ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end
     }
   end
@@ -97,6 +101,27 @@ defmodule SymphonyElixir.CLI do
 
   defp set_logs_root(logs_root) do
     Application.put_env(:symphony_elixir, :log_file, LogFile.default_log_file(logs_root))
+    :ok
+  end
+
+  defp maybe_set_server_port(opts, deps) do
+    case Keyword.get_values(opts, :port) do
+      [] ->
+        :ok
+
+      values ->
+        port = List.last(values)
+
+        if is_integer(port) and port >= 0 do
+          :ok = deps.set_server_port_override.(port)
+        else
+          {:error, usage_message()}
+        end
+    end
+  end
+
+  defp set_server_port_override(port) when is_integer(port) and port >= 0 do
+    Application.put_env(:symphony_elixir, :server_port_override, port)
     :ok
   end
 

@@ -608,28 +608,11 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do
-    spec = HttpServer.child_spec([])
+    spec = HttpServer.child_spec(port: 0)
     assert spec.id == HttpServer
-    assert spec.start == {HttpServer, :start_link, [[]]}
+    assert spec.start == {HttpServer, :start_link, [[port: 0]]}
 
-    previous_boot_config = Application.get_env(:symphony_elixir, :boot_config)
-
-    on_exit(fn ->
-      if is_nil(previous_boot_config) do
-        Application.delete_env(:symphony_elixir, :boot_config)
-      else
-        Application.put_env(:symphony_elixir, :boot_config, previous_boot_config)
-      end
-    end)
-
-    SymphonyElixir.BootConfig.put(%{
-      manifest_path: "/tmp/SYMPHONY.md",
-      projects: [],
-      server: %SymphonyElixir.Manifest.Schema.Server{host: "127.0.0.1", port: nil},
-      observability: %SymphonyElixir.Manifest.Schema.Observability{}
-    })
-
-    assert :ignore = HttpServer.start_link()
+    assert :ignore = HttpServer.start_link(port: nil)
     assert HttpServer.bound_port() == nil
 
     snapshot = static_snapshot()
@@ -642,16 +625,16 @@ defmodule SymphonyElixir.ExtensionsTest do
       operations: ["poll"]
     }
 
-    SymphonyElixir.BootConfig.put(%{
-      manifest_path: "/tmp/SYMPHONY.md",
-      projects: [],
-      server: %SymphonyElixir.Manifest.Schema.Server{host: "127.0.0.1", port: 0},
-      observability: %SymphonyElixir.Manifest.Schema.Observability{}
-    })
+    server_opts = [
+      host: "127.0.0.1",
+      port: 0,
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 50
+    ]
 
     start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: snapshot, refresh: refresh})
 
-    start_supervised!({HttpServer, orchestrator: orchestrator_name, snapshot_timeout_ms: 50})
+    start_supervised!({HttpServer, server_opts})
 
     port = wait_for_bound_port()
     assert port == HttpServer.bound_port()
@@ -686,14 +669,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert method_not_allowed_response.status == 405
     assert method_not_allowed_response.body["error"]["code"] == "method_not_allowed"
 
-    SymphonyElixir.BootConfig.put(%{
-      manifest_path: "/tmp/SYMPHONY.md",
-      projects: [],
-      server: %SymphonyElixir.Manifest.Schema.Server{host: "bad host", port: 0},
-      observability: %SymphonyElixir.Manifest.Schema.Observability{}
-    })
-
-    assert {:error, _reason} = HttpServer.start_link()
+    assert {:error, _reason} = HttpServer.start_link(host: "bad host", port: 0)
   end
 
   defp start_test_endpoint(overrides) do

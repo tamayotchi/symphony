@@ -18,9 +18,9 @@ defmodule SymphonyElixir.HttpServer do
 
   @spec start_link(keyword()) :: GenServer.on_start() | :ignore
   def start_link(opts \\ []) do
-    case BootConfig.server_settings().port do
+    case Keyword.get(opts, :port, default_port()) do
       port when is_integer(port) and port >= 0 ->
-        host = BootConfig.server_settings().host
+        host = Keyword.get(opts, :host, default_host())
         orchestrator = Keyword.get(opts, :orchestrator, default_orchestrator())
         snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
 
@@ -58,6 +58,17 @@ defmodule SymphonyElixir.HttpServer do
     _error -> nil
   catch
     :exit, _reason -> nil
+  end
+
+  defp default_port do
+    case Application.get_env(:symphony_elixir, :server_port_override) do
+      port when is_integer(port) and port >= 0 -> port
+      _ -> BootConfig.server_settings().port
+    end
+  end
+
+  defp default_host do
+    BootConfig.server_settings().host
   end
 
   defp default_orchestrator, do: nil
