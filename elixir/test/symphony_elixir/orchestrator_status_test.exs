@@ -989,17 +989,22 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   test "status dashboard renders dashboard url on its own line when server port is configured" do
-    previous_port_override = Application.get_env(:symphony_elixir, :server_port_override)
+    previous_boot_config = Application.get_env(:symphony_elixir, :boot_config)
 
     on_exit(fn ->
-      if is_nil(previous_port_override) do
-        Application.delete_env(:symphony_elixir, :server_port_override)
+      if is_nil(previous_boot_config) do
+        Application.delete_env(:symphony_elixir, :boot_config)
       else
-        Application.put_env(:symphony_elixir, :server_port_override, previous_port_override)
+        Application.put_env(:symphony_elixir, :boot_config, previous_boot_config)
       end
     end)
 
-    Application.put_env(:symphony_elixir, :server_port_override, 4000)
+    SymphonyElixir.BootConfig.put(%{
+      manifest_path: "/tmp/SYMPHONY.md",
+      projects: [%{id: "symphony", workflow_path: "/tmp/WORKFLOW.md", orchestrator: nil}],
+      server: %SymphonyElixir.Manifest.Schema.Server{host: "127.0.0.1", port: 4000},
+      observability: %SymphonyElixir.Manifest.Schema.Observability{}
+    })
 
     snapshot_data =
       {:ok,

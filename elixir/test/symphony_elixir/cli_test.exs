@@ -8,7 +8,6 @@ defmodule SymphonyElixir.CLITest do
       file_regular?: fn path -> Path.basename(path) == "SYMPHONY.md" end,
       set_manifest_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
-      set_server_port_override: fn _port -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
@@ -22,21 +21,20 @@ defmodule SymphonyElixir.CLITest do
 
     deps = %{
       file_regular?: fn path ->
-        send(parent, {:workflow_checked, path})
+        send(parent, {:manifest_checked, path})
         path == expanded_path
       end,
       set_manifest_file_path: fn path ->
-        send(parent, {:workflow_set, path})
+        send(parent, {:manifest_set, path})
         :ok
       end,
       set_logs_root: fn _path -> :ok end,
-      set_server_port_override: fn _port -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
     assert :ok = CLI.evaluate([manifest_path], deps)
-    assert_received {:workflow_checked, ^expanded_path}
-    assert_received {:workflow_set, ^expanded_path}
+    assert_received {:manifest_checked, ^expanded_path}
+    assert_received {:manifest_set, ^expanded_path}
   end
 
   test "accepts --logs-root and passes an expanded root to runtime deps" do
@@ -49,7 +47,6 @@ defmodule SymphonyElixir.CLITest do
         send(parent, {:logs_root, path})
         :ok
       end,
-      set_server_port_override: fn _port -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
@@ -63,7 +60,6 @@ defmodule SymphonyElixir.CLITest do
       file_regular?: fn _path -> false end,
       set_manifest_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
-      set_server_port_override: fn _port -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 
@@ -76,7 +72,6 @@ defmodule SymphonyElixir.CLITest do
       file_regular?: fn _path -> true end,
       set_manifest_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
-      set_server_port_override: fn _port -> :ok end,
       ensure_all_started: fn -> {:error, :boom} end
     }
 
@@ -90,7 +85,6 @@ defmodule SymphonyElixir.CLITest do
       file_regular?: fn _path -> true end,
       set_manifest_file_path: fn _path -> :ok end,
       set_logs_root: fn _path -> :ok end,
-      set_server_port_override: fn _port -> :ok end,
       ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
     }
 

@@ -109,7 +109,6 @@ aggregated dashboard/API. A one-project deployment is just a manifest with one `
 Optional flags:
 
 - `--logs-root` tells Symphony to write logs under a different directory (default: `./log`)
-- `--port` also starts the Phoenix observability service (default: disabled)
 
 `SYMPHONY.md` is the startup/control-plane manifest. Each project `WORKFLOW.md` uses YAML front
 matter for project-specific configuration plus a Markdown body used as that worker's session
@@ -247,7 +246,7 @@ pi:
 
 - If `SYMPHONY.md` is missing or has invalid YAML, Symphony does not boot.
 - Each project entry in `SYMPHONY.md` must point to a valid `WORKFLOW.md`.
-- `server.port` or CLI `--port` enables the optional Phoenix LiveView dashboard and JSON API at
+- `server.port` enables the optional Phoenix LiveView dashboard and JSON API at
   `/`, `/api/v1/state`, `/api/v1/<issue_identifier>`, and `/api/v1/refresh`.
 - In multi-project mode, `/api/v1/state` is aggregated across all configured projects and the
   dashboard shows per-project runtime cards plus combined running/retry queues.
