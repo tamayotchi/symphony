@@ -200,7 +200,7 @@ defmodule SymphonyElixir.MultiProjectTest do
     assert :ok = BootConfig.put(boot_config)
     assert Projects.enabled?()
 
-    payload = Presenter.state_payload(nil, 50)
+    payload = Presenter.state_payload(50)
 
     assert payload.counts == %{running: 1, retrying: 1}
     assert payload.codex_totals.total_tokens == 20
@@ -208,11 +208,11 @@ defmodule SymphonyElixir.MultiProjectTest do
     assert Enum.any?(payload.running, &(&1.project_id == "backend" and &1.issue_identifier == "BE-1"))
     assert Enum.any?(payload.retrying, &(&1.project_id == "frontend" and &1.issue_identifier == "FE-2"))
 
-    assert {:ok, issue_payload} = Presenter.issue_payload("BE-1", nil, 50)
+    assert {:ok, issue_payload} = Presenter.issue_payload("BE-1", 50)
     assert issue_payload.project_id == "backend"
     assert issue_payload.workspace.path == Path.join(Path.join(root, "backend-workspaces"), "BE-1")
 
-    assert {:ok, refresh_payload} = Presenter.refresh_payload(nil)
+    assert {:ok, refresh_payload} = Presenter.refresh_payload()
     assert refresh_payload.queued == true
     assert Map.keys(refresh_payload.projects) == ["backend", "frontend"]
     assert is_binary(refresh_payload.requested_at)
@@ -434,7 +434,7 @@ defmodule SymphonyElixir.MultiProjectTest do
 
     File.write!(workflow_path, "---\ntracker: [\n---\nBroken prompt\n")
 
-    assert {:ok, issue_payload} = Presenter.issue_payload("BE-77", nil, 50)
+    assert {:ok, issue_payload} = Presenter.issue_payload("BE-77", 50)
     assert issue_payload.workspace.path == Path.join(root, "backend/backend-workspaces/BE-77")
   end
 
@@ -482,7 +482,7 @@ defmodule SymphonyElixir.MultiProjectTest do
              })
 
     assert {:error, :unavailable} = Projects.request_refresh()
-    assert {:error, :unavailable} = Presenter.refresh_payload(nil)
+    assert {:error, :unavailable} = Presenter.refresh_payload()
   end
 
   defp start_test_endpoint(overrides) do

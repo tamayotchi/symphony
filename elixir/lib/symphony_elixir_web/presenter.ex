@@ -3,13 +3,13 @@ defmodule SymphonyElixirWeb.Presenter do
   Shared projections for the observability API and dashboard.
   """
 
-  alias SymphonyElixir.{Config, Orchestrator, Projects, StatusDashboard}
+  alias SymphonyElixir.{Config, Projects, StatusDashboard}
 
-  @spec state_payload(GenServer.name() | nil, timeout()) :: map()
-  def state_payload(orchestrator, snapshot_timeout_ms) do
+  @spec state_payload(timeout()) :: map()
+  def state_payload(snapshot_timeout_ms) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-    case snapshot(orchestrator, snapshot_timeout_ms) do
+    case Projects.aggregate_snapshot(snapshot_timeout_ms) do
       %{} = snapshot ->
         base_payload = %{
           generated_at: generated_at,
@@ -28,17 +28,14 @@ defmodule SymphonyElixirWeb.Presenter do
           projects -> Map.put(base_payload, :projects, projects)
         end
 
-      :timeout ->
-        %{generated_at: generated_at, error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
-
       :unavailable ->
         %{generated_at: generated_at, error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
     end
   end
 
-  @spec issue_payload(String.t(), GenServer.name() | nil, timeout()) :: {:ok, map()} | {:error, :issue_not_found}
-  def issue_payload(issue_identifier, orchestrator, snapshot_timeout_ms) when is_binary(issue_identifier) do
-    with {:ok, issue_data} <- lookup_issue(issue_identifier, orchestrator, snapshot_timeout_ms) do
+  @spec issue_payload(String.t(), timeout()) :: {:ok, map()} | {:error, :issue_not_found}
+  def issue_payload(issue_identifier, snapshot_timeout_ms) when is_binary(issue_identifier) do
+    with {:ok, issue_data} <- Projects.find_issue(issue_identifier, snapshot_timeout_ms) do
       {:ok,
        issue_payload_body(
          issue_identifier,
@@ -49,47 +46,14 @@ defmodule SymphonyElixirWeb.Presenter do
     end
   end
 
-  @spec refresh_payload(GenServer.name() | nil) :: {:ok, map()} | {:error, :unavailable}
-  def refresh_payload(orchestrator) do
-    case refresh(orchestrator) do
+  @spec refresh_payload() :: {:ok, map()} | {:error, :unavailable}
+  def refresh_payload do
+    case Projects.request_refresh() do
       {:error, :unavailable} ->
         {:error, :unavailable}
 
       {:ok, payload} ->
         {:ok, refresh_payload_body(payload)}
-    end
-  end
-
-  defp snapshot(nil, snapshot_timeout_ms), do: Projects.aggregate_snapshot(snapshot_timeout_ms)
-  defp snapshot(orchestrator, snapshot_timeout_ms), do: Orchestrator.snapshot(orchestrator, snapshot_timeout_ms)
-
-  defp refresh(nil), do: Projects.request_refresh()
-
-  defp refresh(orchestrator) do
-    case Orchestrator.request_refresh(orchestrator) do
-      :unavailable -> {:error, :unavailable}
-      payload -> {:ok, payload}
-    end
-  end
-
-  defp lookup_issue(issue_identifier, nil, snapshot_timeout_ms) do
-    Projects.find_issue(issue_identifier, snapshot_timeout_ms)
-  end
-
-  defp lookup_issue(issue_identifier, orchestrator, snapshot_timeout_ms) do
-    case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
-      %{} = snapshot ->
-        running = Enum.find(snapshot.running, &(&1.identifier == issue_identifier))
-        retry = Enum.find(snapshot.retrying, &(&1.identifier == issue_identifier))
-
-        if is_nil(running) and is_nil(retry) do
-          {:error, :issue_not_found}
-        else
-          {:ok, %{running: running, retry: retry, project: nil, snapshot: snapshot}}
-        end
-
-      _ ->
-        {:error, :issue_not_found}
     end
   end
 
@@ -240,10 +204,6 @@ defmodule SymphonyElixirWeb.Presenter do
 
   defp workspace_path_from_project(issue_identifier, %{workflow_path: workflow_path}) when is_binary(workflow_path) do
     Path.join(Config.settings!(workflow_path: workflow_path).workspace.root, issue_identifier)
-  end
-
-  defp workspace_path_from_project(issue_identifier, _project) do
-    Path.join(Config.settings!().workspace.root, issue_identifier)
   end
 
   defp workspace_host(running, retry) do

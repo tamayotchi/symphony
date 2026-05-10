@@ -174,7 +174,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
             <div class="table-wrap">
               <table class="data-table data-table-running">
                 <colgroup>
-                  <col :if={multi_project_payload?(@payload)} style="width: 9rem;" />
+                  <col style="width: 9rem;" />
                   <col style="width: 12rem;" />
                   <col style="width: 8rem;" />
                   <col style="width: 7.5rem;" />
@@ -184,7 +184,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                 </colgroup>
                 <thead>
                   <tr>
-                    <th :if={multi_project_payload?(@payload)}>Project</th>
+                    <th>Project</th>
                     <th>Issue</th>
                     <th>State</th>
                     <th>Session</th>
@@ -195,8 +195,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
                 </thead>
                 <tbody>
                   <tr :for={entry <- @payload.running}>
-                    <td :if={multi_project_payload?(@payload)}>
-                      <span class="issue-id"><%= entry.project_id || "default" %></span>
+                    <td>
+                      <span class="issue-id"><%= entry.project_id %></span>
                     </td>
                     <td>
                       <div class="issue-stack">
@@ -269,7 +269,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
               <table class="data-table" style="min-width: 680px;">
                 <thead>
                   <tr>
-                    <th :if={multi_project_payload?(@payload)}>Project</th>
+                    <th>Project</th>
                     <th>Issue</th>
                     <th>Attempt</th>
                     <th>Due at</th>
@@ -278,7 +278,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                 </thead>
                 <tbody>
                   <tr :for={entry <- @payload.retrying}>
-                    <td :if={multi_project_payload?(@payload)}><%= entry.project_id || "default" %></td>
+                    <td><%= entry.project_id %></td>
                     <td>
                       <div class="issue-stack">
                         <span class="issue-id"><%= entry.issue_identifier %></span>
@@ -300,11 +300,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
   end
 
   defp load_payload do
-    Presenter.state_payload(orchestrator(), snapshot_timeout_ms())
-  end
-
-  defp orchestrator do
-    Endpoint.config(:orchestrator)
+    Presenter.state_payload(snapshot_timeout_ms())
   end
 
   defp snapshot_timeout_ms do
@@ -364,17 +360,11 @@ defmodule SymphonyElixirWeb.DashboardLive do
     normalized = state |> to_string() |> String.downcase()
 
     cond do
-      String.contains?(normalized, ["progress", "running", "active", "ok"]) -> "#{base} state-badge-active"
-      String.contains?(normalized, ["blocked", "error", "failed", "timeout", "unavailable"]) -> "#{base} state-badge-danger"
+      String.contains?(normalized, ["progress", "running", "active"]) -> "#{base} state-badge-active"
+      String.contains?(normalized, ["blocked", "error", "failed"]) -> "#{base} state-badge-danger"
       String.contains?(normalized, ["todo", "queued", "pending", "retry"]) -> "#{base} state-badge-warning"
       true -> base
     end
-  end
-
-  defp multi_project_payload?(payload) do
-    length(Map.get(payload, :projects, [])) > 1 ||
-      Enum.any?(Map.get(payload, :running, []), &is_binary(Map.get(&1, :project_id))) ||
-      Enum.any?(Map.get(payload, :retrying, []), &is_binary(Map.get(&1, :project_id)))
   end
 
   defp schedule_runtime_tick do

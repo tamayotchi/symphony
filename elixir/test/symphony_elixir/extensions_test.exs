@@ -335,7 +335,8 @@ defmodule SymphonyElixir.ExtensionsTest do
         }
       )
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+    put_single_project_boot_config(orchestrator_name)
+    start_test_endpoint(snapshot_timeout_ms: 50)
 
     conn = get(build_conn(), "/api/v1/state")
     state_payload = json_response(conn, 200)
@@ -350,6 +351,7 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "state" => "In Progress",
                  "worker_host" => nil,
                  "workspace_path" => nil,
+                 "project_id" => "symphony",
                  "session_id" => "thread-http",
                  "turn_count" => 7,
                  "last_event" => "notification",
@@ -367,7 +369,8 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "due_at" => state_payload["retrying"] |> List.first() |> Map.fetch!("due_at"),
                  "error" => "boom",
                  "worker_host" => nil,
-                 "workspace_path" => nil
+                 "workspace_path" => nil,
+                 "project_id" => "symphony"
                }
              ],
              "codex_totals" => %{
@@ -376,7 +379,24 @@ defmodule SymphonyElixir.ExtensionsTest do
                "total_tokens" => 12,
                "seconds_running" => 42.5
              },
-             "rate_limits" => %{"primary" => %{"remaining" => 11}}
+             "rate_limits" => %{"primary" => %{"remaining" => 11}},
+             "projects" => [
+               %{
+                 "project_id" => "symphony",
+                 "workflow_path" => "/tmp/WORKFLOW.md",
+                 "project_slug" => "symphony-project",
+                 "workspace_root" => Config.settings!().workspace.root,
+                 "status" => "ok",
+                 "counts" => %{"running" => 1, "retrying" => 1},
+                 "codex_totals" => %{
+                   "input_tokens" => 4,
+                   "output_tokens" => 8,
+                   "total_tokens" => 12,
+                   "seconds_running" => 42.5
+                 },
+                 "polling" => nil
+               }
+             ]
            }
 
     conn = get(build_conn(), "/api/v1/MT-HTTP")
@@ -407,7 +427,8 @@ defmodule SymphonyElixir.ExtensionsTest do
              "logs" => %{"codex_session_logs" => []},
              "recent_events" => [],
              "last_error" => nil,
-             "tracked" => %{}
+             "tracked" => %{},
+             "project_id" => "symphony"
            }
 
     conn = get(build_conn(), "/api/v1/MT-RETRY")
@@ -429,7 +450,8 @@ defmodule SymphonyElixir.ExtensionsTest do
 
   test "phoenix observability api preserves 405, 404, and unavailable behavior" do
     unavailable_orchestrator = Module.concat(__MODULE__, :UnavailableOrchestrator)
-    start_test_endpoint(orchestrator: unavailable_orchestrator, snapshot_timeout_ms: 5)
+    put_single_project_boot_config(unavailable_orchestrator)
+    start_test_endpoint(snapshot_timeout_ms: 5)
 
     assert json_response(post(build_conn(), "/api/v1/state", %{}), 405) ==
              %{"error" => %{"code" => "method_not_allowed", "message" => "Method not allowed"}}
@@ -448,11 +470,36 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     state_payload = json_response(get(build_conn(), "/api/v1/state"), 200)
 
-    assert state_payload ==
-             %{
-               "generated_at" => state_payload["generated_at"],
-               "error" => %{"code" => "snapshot_unavailable", "message" => "Snapshot unavailable"}
-             }
+    assert state_payload == %{
+             "generated_at" => state_payload["generated_at"],
+             "counts" => %{"running" => 0, "retrying" => 0},
+             "running" => [],
+             "retrying" => [],
+             "codex_totals" => %{
+               "input_tokens" => 0,
+               "output_tokens" => 0,
+               "total_tokens" => 0,
+               "seconds_running" => 0
+             },
+             "rate_limits" => nil,
+             "projects" => [
+               %{
+                 "project_id" => "symphony",
+                 "workflow_path" => "/tmp/WORKFLOW.md",
+                 "project_slug" => "symphony-project",
+                 "workspace_root" => Config.settings!().workspace.root,
+                 "status" => "unavailable",
+                 "counts" => %{"running" => 0, "retrying" => 0},
+                 "codex_totals" => %{
+                   "input_tokens" => 0,
+                   "output_tokens" => 0,
+                   "total_tokens" => 0,
+                   "seconds_running" => 0
+                 },
+                 "polling" => nil
+               }
+             ]
+           }
 
     assert json_response(post(build_conn(), "/api/v1/refresh", %{}), 503) ==
              %{
@@ -466,15 +513,41 @@ defmodule SymphonyElixir.ExtensionsTest do
   test "phoenix observability api preserves snapshot timeout behavior" do
     timeout_orchestrator = Module.concat(__MODULE__, :TimeoutOrchestrator)
     {:ok, _pid} = SlowOrchestrator.start_link(name: timeout_orchestrator)
-    start_test_endpoint(orchestrator: timeout_orchestrator, snapshot_timeout_ms: 1)
+    put_single_project_boot_config(timeout_orchestrator)
+    start_test_endpoint(snapshot_timeout_ms: 1)
 
     timeout_payload = json_response(get(build_conn(), "/api/v1/state"), 200)
 
-    assert timeout_payload ==
-             %{
-               "generated_at" => timeout_payload["generated_at"],
-               "error" => %{"code" => "snapshot_timeout", "message" => "Snapshot timed out"}
-             }
+    assert timeout_payload == %{
+             "generated_at" => timeout_payload["generated_at"],
+             "counts" => %{"running" => 0, "retrying" => 0},
+             "running" => [],
+             "retrying" => [],
+             "codex_totals" => %{
+               "input_tokens" => 0,
+               "output_tokens" => 0,
+               "total_tokens" => 0,
+               "seconds_running" => 0
+             },
+             "rate_limits" => nil,
+             "projects" => [
+               %{
+                 "project_id" => "symphony",
+                 "workflow_path" => "/tmp/WORKFLOW.md",
+                 "project_slug" => "symphony-project",
+                 "workspace_root" => Config.settings!().workspace.root,
+                 "status" => "timeout",
+                 "counts" => %{"running" => 0, "retrying" => 0},
+                 "codex_totals" => %{
+                   "input_tokens" => 0,
+                   "output_tokens" => 0,
+                   "total_tokens" => 0,
+                   "seconds_running" => 0
+                 },
+                 "polling" => nil
+               }
+             ]
+           }
   end
 
   test "dashboard bootstraps liveview from embedded static assets" do
@@ -492,7 +565,8 @@ defmodule SymphonyElixir.ExtensionsTest do
         }
       )
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+    put_single_project_boot_config(orchestrator_name)
+    start_test_endpoint(snapshot_timeout_ms: 50)
 
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
@@ -536,7 +610,8 @@ defmodule SymphonyElixir.ExtensionsTest do
         }
       )
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+    put_single_project_boot_config(orchestrator_name)
+    start_test_endpoint(snapshot_timeout_ms: 50)
 
     {:ok, view, html} = live(build_conn(), "/")
     assert html =~ "Operations Dashboard"
@@ -597,14 +672,14 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   test "dashboard liveview renders an unavailable state without crashing" do
-    start_test_endpoint(
-      orchestrator: Module.concat(__MODULE__, :MissingDashboardOrchestrator),
-      snapshot_timeout_ms: 5
-    )
+    put_single_project_boot_config(Module.concat(__MODULE__, :MissingDashboardOrchestrator))
+    start_test_endpoint(snapshot_timeout_ms: 5)
 
     {:ok, _view, html} = live(build_conn(), "/")
-    assert html =~ "Snapshot unavailable"
-    assert html =~ "snapshot_unavailable"
+    assert html =~ "Operations Dashboard"
+    assert html =~ "Projects"
+    assert html =~ "symphony"
+    assert html =~ "unavailable"
   end
 
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do
@@ -628,11 +703,11 @@ defmodule SymphonyElixir.ExtensionsTest do
     server_opts = [
       host: "127.0.0.1",
       port: 0,
-      orchestrator: orchestrator_name,
       snapshot_timeout_ms: 50
     ]
 
     start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: snapshot, refresh: refresh})
+    put_single_project_boot_config(orchestrator_name)
 
     start_supervised!({HttpServer, server_opts})
 
@@ -681,6 +756,24 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     Application.put_env(:symphony_elixir, SymphonyElixirWeb.Endpoint, endpoint_config)
     start_supervised!({SymphonyElixirWeb.Endpoint, []})
+  end
+
+  defp put_single_project_boot_config(orchestrator) do
+    SymphonyElixir.BootConfig.put(%{
+      manifest_path: "/tmp/SYMPHONY.md",
+      server: %SymphonyElixir.Manifest.Schema.Server{host: "127.0.0.1", port: 4040},
+      observability: %SymphonyElixir.Manifest.Schema.Observability{},
+      projects: [
+        %{
+          id: "symphony",
+          workflow_path: "/tmp/WORKFLOW.md",
+          workspace_root: Config.settings!().workspace.root,
+          project_slug: "symphony-project",
+          max_concurrent_agents: 10,
+          orchestrator: orchestrator
+        }
+      ]
+    })
   end
 
   defp static_snapshot do

@@ -7,7 +7,6 @@ defmodule SymphonyElixir.StatusDashboard do
   require Logger
 
   alias SymphonyElixir.{BootConfig, Config, HttpServer, Projects}
-  alias SymphonyElixir.Orchestrator
   alias SymphonyElixirWeb.ObservabilityPubSub
 
   @minimum_idle_rerender_ms 1_000
@@ -400,7 +399,7 @@ defmodule SymphonyElixir.StatusDashboard do
 
     project_line =
       colorize("│ Projects: ", @ansi_bold) <>
-        colorize(if(project_ids == "", do: fallback_project_label(), else: project_ids), project_line_color(project_ids))
+        colorize(if(project_ids == "", do: "n/a", else: project_ids), project_line_color(project_ids))
 
     case dashboard_url() do
       url when is_binary(url) ->
@@ -423,17 +422,6 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_project_refresh_line(_) do
     colorize("│ Next refresh: ", @ansi_bold) <> colorize("n/a", @ansi_gray)
-  end
-
-  defp linear_project_url(project_slug), do: "https://linear.app/project/#{project_slug}/issues"
-
-  defp fallback_project_label do
-    case Config.settings!().tracker.project_slug do
-      project_slug when is_binary(project_slug) and project_slug != "" -> linear_project_url(project_slug)
-      _ -> "n/a"
-    end
-  rescue
-    _error -> "n/a"
   end
 
   defp project_line_color(project_ids) when is_binary(project_ids) and project_ids != "", do: @ansi_cyan
@@ -576,13 +564,7 @@ defmodule SymphonyElixir.StatusDashboard do
     do: dashboard_url(host, configured_port, bound_port)
 
   defp snapshot_payload do
-    snapshot =
-      case Projects.aggregate_snapshot(15_000) do
-        :unavailable -> if Process.whereis(Orchestrator), do: Orchestrator.snapshot(), else: :unavailable
-        aggregate -> aggregate
-      end
-
-    case snapshot do
+    case Projects.aggregate_snapshot(15_000) do
       %{
         running: running,
         retrying: retrying,
