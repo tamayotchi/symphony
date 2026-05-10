@@ -58,6 +58,20 @@ defmodule SymphonyElixir.CLITest do
     assert expanded_path == Path.expand("tmp/custom-logs")
   end
 
+  test "returns usage with hello word when args are invalid" do
+    deps = %{
+      file_regular?: fn _path -> true end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      ensure_all_started: fn -> {:ok, [:symphony_elixir]} end
+    }
+
+    assert {:error, message} = CLI.evaluate(["--nope"], deps)
+    assert message =~ "hello word"
+    assert message =~ "Usage: symphony"
+  end
+
   test "returns not found when workflow file does not exist" do
     deps = %{
       file_regular?: fn _path -> false end,
