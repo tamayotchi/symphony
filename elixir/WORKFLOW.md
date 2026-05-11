@@ -41,9 +41,9 @@ pi:
   disable_extensions: true
   disable_themes: true
   model:
-    provider: github-copilot
-    model_id: gpt-5.4
-  thinking_level: low
+    provider: openai-codex
+    model_id: gpt-5.5
+  thinking_level: high
 ---
 
 You are working on a Linear ticket `{{ issue.identifier }}`
