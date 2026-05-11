@@ -42,7 +42,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
     ~H"""
     <section class="dashboard-shell">
       <header class="hero-card">
-        <div class="hero-grid">
+        <div class="hero-grid hero-grid-board">
           <div>
             <p class="eyebrow">
               Symphony Observability
@@ -55,15 +55,22 @@ defmodule SymphonyElixirWeb.DashboardLive do
             </p>
           </div>
 
-          <div class="status-stack">
-            <span class="status-badge status-badge-live">
-              <span class="status-badge-dot"></span>
-              Live
-            </span>
-            <span class="status-badge status-badge-offline">
-              <span class="status-badge-dot"></span>
-              Offline
-            </span>
+          <div class="hero-sidecar">
+            <nav class="page-nav" aria-label="Dashboard navigation">
+              <a class="nav-chip nav-chip-active" href="/">Observability</a>
+              <a class="nav-chip" href="/kanban">Kanban</a>
+            </nav>
+
+            <div class="status-stack">
+              <span class="status-badge status-badge-live">
+                <span class="status-badge-dot"></span>
+                Live
+              </span>
+              <span class="status-badge status-badge-offline">
+                <span class="status-badge-dot"></span>
+                Offline
+              </span>
+            </div>
           </div>
         </div>
       </header>

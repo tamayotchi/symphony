@@ -571,6 +571,7 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
+    assert html =~ "/kanban.css"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
     assert html =~ "/vendor/phoenix/phoenix.js"
     assert html =~ "/vendor/phoenix_live_view/phoenix_live_view.js"
@@ -582,6 +583,10 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert dashboard_css =~ ".status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
+
+    kanban_css = response(get(build_conn(), "/kanban.css"), 200)
+    assert kanban_css =~ ".kanban-board"
+    assert kanban_css =~ ".nav-chip"
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"
@@ -722,6 +727,10 @@ defmodule SymphonyElixir.ExtensionsTest do
     dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css")
     assert dashboard_css.status == 200
     assert dashboard_css.body =~ ":root {"
+
+    kanban_css = Req.get!("http://127.0.0.1:#{port}/kanban.css")
+    assert kanban_css.status == 200
+    assert kanban_css.body =~ ".kanban-board"
 
     phoenix_js = Req.get!("http://127.0.0.1:#{port}/vendor/phoenix/phoenix.js")
     assert phoenix_js.status == 200
