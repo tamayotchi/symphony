@@ -1,7 +1,7 @@
 ---
 tracker:
   kind: linear
-  project_slug: "tamayotchi-ad2597898bcc"
+  project_slug: "robert-52c3bfae0f95"
   active_states:
     - Todo
     - In Progress
@@ -16,17 +16,15 @@ tracker:
 polling:
   interval_ms: 5000
 workspace:
-  root: ~/code/symphony-workspaces
+  root: ~/code/robert-workspaces
 worker:
   runtime: pi
 hooks:
   after_create: |
-    git clone --depth 1 https://github.com/tamayotchi/symphony .
+    git clone --depth 1 https://github.com/NativoStudio/Robert .
     if command -v mise >/dev/null 2>&1; then
-      cd elixir && mise trust && mise exec -- mix deps.get
+      mise trust && mise exec -- mix deps.get
     fi
-  before_remove: |
-    cd elixir && mise exec -- mix workspace.before_remove
 agent:
   max_concurrent_agents: 10
   max_turns: 20
@@ -43,7 +41,7 @@ pi:
   model:
     provider: github-copilot
     model_id: gpt-5.4
-  thinking_level: low
+  thinking_level: high
 ---
 
 You are working on a Linear ticket `{{ issue.identifier }}`

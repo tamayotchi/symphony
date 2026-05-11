@@ -40,6 +40,7 @@ defmodule SymphonyElixir.TestSupport do
 
         on_exit(fn ->
           Application.delete_env(:symphony_elixir, :workflow_file_path)
+          Application.delete_env(:symphony_elixir, :manifest_file_path)
           Application.delete_env(:symphony_elixir, :server_port_override)
           Application.delete_env(:symphony_elixir, :memory_tracker_issues)
           Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
@@ -118,6 +119,7 @@ defmodule SymphonyElixir.TestSupport do
           pi_command: nil,
           pi_response_timeout_ms: nil,
           pi_session_dir_name: nil,
+          pi_append_system_prompt: nil,
           pi_extension_paths: nil,
           pi_disable_extensions: nil,
           pi_disable_themes: nil,
@@ -129,11 +131,6 @@ defmodule SymphonyElixir.TestSupport do
           hook_after_run: nil,
           hook_before_remove: nil,
           hook_timeout_ms: 60_000,
-          observability_enabled: true,
-          observability_refresh_ms: 1_000,
-          observability_render_interval_ms: 16,
-          server_port: nil,
-          server_host: nil,
           prompt: @workflow_prompt
         ],
         overrides
@@ -165,6 +162,7 @@ defmodule SymphonyElixir.TestSupport do
     pi_command = Keyword.get(config, :pi_command)
     pi_response_timeout_ms = Keyword.get(config, :pi_response_timeout_ms)
     pi_session_dir_name = Keyword.get(config, :pi_session_dir_name)
+    pi_append_system_prompt = Keyword.get(config, :pi_append_system_prompt)
     pi_extension_paths = Keyword.get(config, :pi_extension_paths)
     pi_disable_extensions = Keyword.get(config, :pi_disable_extensions)
     pi_disable_themes = Keyword.get(config, :pi_disable_themes)
@@ -176,11 +174,6 @@ defmodule SymphonyElixir.TestSupport do
     hook_after_run = Keyword.get(config, :hook_after_run)
     hook_before_remove = Keyword.get(config, :hook_before_remove)
     hook_timeout_ms = Keyword.get(config, :hook_timeout_ms)
-    observability_enabled = Keyword.get(config, :observability_enabled)
-    observability_refresh_ms = Keyword.get(config, :observability_refresh_ms)
-    observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
-    server_port = Keyword.get(config, :server_port)
-    server_host = Keyword.get(config, :server_host)
     prompt = Keyword.get(config, :prompt)
 
     sections =
@@ -212,20 +205,19 @@ defmodule SymphonyElixir.TestSupport do
         "  turn_timeout_ms: #{yaml_value(codex_turn_timeout_ms)}",
         "  read_timeout_ms: #{yaml_value(codex_read_timeout_ms)}",
         "  stall_timeout_ms: #{yaml_value(codex_stall_timeout_ms)}",
-        pi_yaml(
-          pi_command,
-          pi_response_timeout_ms,
-          pi_session_dir_name,
-          pi_extension_paths,
-          pi_disable_extensions,
-          pi_disable_themes,
-          pi_model_provider,
-          pi_model_id,
-          pi_thinking_level
-        ),
+        pi_yaml(%{
+          command: pi_command,
+          response_timeout_ms: pi_response_timeout_ms,
+          session_dir_name: pi_session_dir_name,
+          append_system_prompt: pi_append_system_prompt,
+          extension_paths: pi_extension_paths,
+          disable_extensions: pi_disable_extensions,
+          disable_themes: pi_disable_themes,
+          model_provider: pi_model_provider,
+          model_id: pi_model_id,
+          thinking_level: pi_thinking_level
+        }),
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
-        observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
-        server_yaml(server_port, server_host),
         "---",
         prompt
       ]
@@ -287,60 +279,61 @@ defmodule SymphonyElixir.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp pi_yaml(command, response_timeout_ms, session_dir_name, extension_paths, disable_extensions, disable_themes, model_provider, model_id, thinking_level)
-       when is_nil(command) and is_nil(response_timeout_ms) and is_nil(session_dir_name) and extension_paths in [nil, []] and is_nil(disable_extensions) and is_nil(disable_themes) and
-              is_nil(model_provider) and is_nil(model_id) and is_nil(thinking_level),
-       do: nil
-
-  defp pi_yaml(command, response_timeout_ms, session_dir_name, extension_paths, disable_extensions, disable_themes, model_provider, model_id, thinking_level) do
-    model_yaml =
-      cond do
-        is_binary(model_provider) and is_binary(model_id) ->
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
+  defp pi_yaml(%{
+         command: command,
+         response_timeout_ms: response_timeout_ms,
+         session_dir_name: session_dir_name,
+         append_system_prompt: append_system_prompt,
+         extension_paths: extension_paths,
+         disable_extensions: disable_extensions,
+         disable_themes: disable_themes,
+         model_provider: model_provider,
+         model_id: model_id,
+         thinking_level: thinking_level
+       }) do
+    if Enum.all?([
+         is_nil(command),
+         is_nil(response_timeout_ms),
+         is_nil(session_dir_name),
+         is_nil(append_system_prompt),
+         extension_paths in [nil, []],
+         is_nil(disable_extensions),
+         is_nil(disable_themes),
+         is_nil(model_provider),
+         is_nil(model_id),
+         is_nil(thinking_level)
+       ]) do
+      nil
+    else
+      model_yaml =
+        if is_binary(model_provider) and is_binary(model_id) do
           [
             "  model:",
             "    provider: #{yaml_value(model_provider)}",
             "    model_id: #{yaml_value(model_id)}"
           ]
-
-        true ->
+        else
           []
-      end
+        end
 
-    [
-      "pi:",
-      command && "  command: #{yaml_value(command)}",
-      response_timeout_ms && "  response_timeout_ms: #{yaml_value(response_timeout_ms)}",
-      session_dir_name && "  session_dir_name: #{yaml_value(session_dir_name)}",
-      extension_paths not in [nil, []] && "  extension_paths: #{yaml_value(extension_paths)}",
-      !is_nil(disable_extensions) && "  disable_extensions: #{yaml_value(disable_extensions)}",
-      !is_nil(disable_themes) && "  disable_themes: #{yaml_value(disable_themes)}",
-      thinking_level && "  thinking_level: #{yaml_value(thinking_level)}"
-    ]
-    |> Kernel.++(model_yaml)
-    |> Enum.reject(&(&1 in [nil, false]))
-    |> Enum.join("\n")
-  end
-
-  defp observability_yaml(enabled, refresh_ms, render_interval_ms) do
-    [
-      "observability:",
-      "  dashboard_enabled: #{yaml_value(enabled)}",
-      "  refresh_ms: #{yaml_value(refresh_ms)}",
-      "  render_interval_ms: #{yaml_value(render_interval_ms)}"
-    ]
-    |> Enum.join("\n")
-  end
-
-  defp server_yaml(nil, nil), do: nil
-
-  defp server_yaml(port, host) do
-    [
-      "server:",
-      port && "  port: #{yaml_value(port)}",
-      host && "  host: #{yaml_value(host)}"
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n")
+      [
+        "pi:",
+        command && "  command: #{yaml_value(command)}",
+        response_timeout_ms && "  response_timeout_ms: #{yaml_value(response_timeout_ms)}",
+        session_dir_name && "  session_dir_name: #{yaml_value(session_dir_name)}",
+        !is_nil(append_system_prompt) &&
+          "  append_system_prompt: #{yaml_value(append_system_prompt)}",
+        extension_paths not in [nil, []] && "  extension_paths: #{yaml_value(extension_paths)}",
+        !is_nil(disable_extensions) &&
+          "  disable_extensions: #{yaml_value(disable_extensions)}",
+        !is_nil(disable_themes) && "  disable_themes: #{yaml_value(disable_themes)}",
+        thinking_level && "  thinking_level: #{yaml_value(thinking_level)}"
+      ]
+      |> Kernel.++(model_yaml)
+      |> Enum.reject(&(&1 in [nil, false]))
+      |> Enum.join("\n")
+    end
   end
 
   defp hook_entry(_name, nil), do: nil

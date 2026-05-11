@@ -237,6 +237,7 @@ defmodule SymphonyElixir.Config.Schema do
       field(:command, :string, default: "pi")
       field(:response_timeout_ms, :integer, default: 60_000)
       field(:session_dir_name, :string, default: ".pi-rpc-sessions")
+      field(:append_system_prompt, :string)
       field(:extension_paths, {:array, :string}, default: [])
       field(:disable_extensions, :boolean, default: true)
       field(:disable_themes, :boolean, default: true)
@@ -255,6 +256,7 @@ defmodule SymphonyElixir.Config.Schema do
           :command,
           :response_timeout_ms,
           :session_dir_name,
+          :append_system_prompt,
           :extension_paths,
           :disable_extensions,
           :disable_themes,
@@ -291,46 +293,6 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
-  defmodule Observability do
-    @moduledoc false
-    use Ecto.Schema
-    import Ecto.Changeset
-
-    @primary_key false
-    embedded_schema do
-      field(:dashboard_enabled, :boolean, default: true)
-      field(:refresh_ms, :integer, default: 1_000)
-      field(:render_interval_ms, :integer, default: 16)
-    end
-
-    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
-    def changeset(schema, attrs) do
-      schema
-      |> cast(attrs, [:dashboard_enabled, :refresh_ms, :render_interval_ms], empty_values: [])
-      |> validate_number(:refresh_ms, greater_than: 0)
-      |> validate_number(:render_interval_ms, greater_than: 0)
-    end
-  end
-
-  defmodule Server do
-    @moduledoc false
-    use Ecto.Schema
-    import Ecto.Changeset
-
-    @primary_key false
-    embedded_schema do
-      field(:port, :integer)
-      field(:host, :string, default: "127.0.0.1")
-    end
-
-    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
-    def changeset(schema, attrs) do
-      schema
-      |> cast(attrs, [:port, :host], empty_values: [])
-      |> validate_number(:port, greater_than_or_equal_to: 0)
-    end
-  end
-
   embedded_schema do
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
@@ -340,12 +302,10 @@ defmodule SymphonyElixir.Config.Schema do
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pi, Pi, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
-    embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
-    embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
   end
 
-  @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
-  def parse(config) when is_map(config) do
+  @spec parse(map(), keyword()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
+  def parse(config, opts \\ []) when is_map(config) do
     config
     |> normalize_keys()
     |> drop_nil_values()
@@ -353,7 +313,7 @@ defmodule SymphonyElixir.Config.Schema do
     |> apply_action(:validate)
     |> case do
       {:ok, settings} ->
-        {:ok, finalize_settings(settings)}
+        {:ok, finalize_settings(settings, opts)}
 
       {:error, changeset} ->
         {:error, {:invalid_workflow_config, format_errors(changeset)}}
@@ -433,20 +393,23 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:codex, with: &Codex.changeset/2)
     |> cast_embed(:pi, with: &Pi.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
-    |> cast_embed(:observability, with: &Observability.changeset/2)
-    |> cast_embed(:server, with: &Server.changeset/2)
   end
 
-  defp finalize_settings(settings) do
+  defp finalize_settings(settings, opts) do
     tracker = %{
       settings.tracker
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
         assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
     }
 
+    workspace_root =
+      settings.workspace.root
+      |> resolve_path_value(Path.join(System.tmp_dir!(), "symphony_workspaces"))
+      |> normalize_workspace_root(opts)
+
     workspace = %{
       settings.workspace
-      | root: resolve_path_value(settings.workspace.root, Path.join(System.tmp_dir!(), "symphony_workspaces"))
+      | root: workspace_root
     }
 
     codex = %{
@@ -458,7 +421,7 @@ defmodule SymphonyElixir.Config.Schema do
     pi = %{
       settings.pi
       | session_dir_name: normalize_pi_session_dir_name(settings.pi.session_dir_name),
-        extension_paths: normalize_pi_extension_paths(settings.pi.extension_paths),
+        extension_paths: normalize_pi_extension_paths(settings.pi.extension_paths, opts),
         thinking_level: normalize_pi_thinking_level(settings.pi.thinking_level),
         model: normalize_pi_model(settings.pi.model)
     }
@@ -568,6 +531,25 @@ defmodule SymphonyElixir.Config.Schema do
 
   defp normalize_optional_string(_value), do: nil
 
+  defp normalize_workspace_root(value, opts) when is_binary(value) and value != "" do
+    case {Keyword.get(opts, :workflow_path), plain_relative_workspace_root?(value)} do
+      {workflow_path, true} when is_binary(workflow_path) ->
+        workflow_dir = workflow_path |> Path.dirname() |> Path.expand()
+        Path.expand(value, workflow_dir)
+
+      _ ->
+        value
+    end
+  end
+
+  defp normalize_workspace_root(value, _opts) do
+    value || Path.join(System.tmp_dir!(), "symphony_workspaces")
+  end
+
+  defp plain_relative_workspace_root?(value) when is_binary(value) do
+    Path.type(value) == :relative and not String.starts_with?(value, ["~", "env:"])
+  end
+
   defp normalize_pi_session_dir_name(value) when is_binary(value) do
     trimmed = String.trim(value)
 
@@ -588,8 +570,19 @@ defmodule SymphonyElixir.Config.Schema do
 
   defp normalize_pi_session_dir_name(_value), do: ".pi-rpc-sessions"
 
-  defp normalize_pi_extension_paths(paths) when is_list(paths) do
-    workflow_dir = Workflow.workflow_file_path() |> Path.dirname() |> Path.expand()
+  defp normalize_pi_extension_paths(paths, opts) when is_list(paths) do
+    workflow_dir =
+      case Keyword.get(opts, :workflow_path) do
+        workflow_path when is_binary(workflow_path) ->
+          workflow_path
+          |> Path.dirname()
+          |> Path.expand()
+
+        _ ->
+          Workflow.workflow_file_path()
+          |> Path.dirname()
+          |> Path.expand()
+      end
 
     paths
     |> Enum.map(&normalize_pi_extension_path(&1, workflow_dir))
@@ -597,7 +590,7 @@ defmodule SymphonyElixir.Config.Schema do
     |> Enum.uniq()
   end
 
-  defp normalize_pi_extension_paths(_paths), do: []
+  defp normalize_pi_extension_paths(_paths, _opts), do: []
 
   defp normalize_pi_extension_path(path, workflow_dir) when is_binary(path) do
     trimmed = String.trim(path)

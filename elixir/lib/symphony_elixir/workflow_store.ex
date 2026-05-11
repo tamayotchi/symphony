@@ -13,30 +13,36 @@ defmodule SymphonyElixir.WorkflowStore do
   defmodule State do
     @moduledoc false
 
-    defstruct [:path, :stamp, :workflow]
+    defstruct [:path, :stamp, :workflow, follow_global_path: true]
   end
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  @spec current() :: {:ok, Workflow.loaded_workflow()} | {:error, term()}
-  def current do
-    case Process.whereis(__MODULE__) do
+  @spec project_store_name(String.t()) :: GenServer.name()
+  def project_store_name(project_id) when is_binary(project_id) do
+    {:via, Registry, {SymphonyElixir.ProjectRegistry, {:workflow_store, project_id}}}
+  end
+
+  @spec current(GenServer.server()) :: {:ok, Workflow.loaded_workflow()} | {:error, term()}
+  def current(server \\ __MODULE__) do
+    case GenServer.whereis(server) do
       pid when is_pid(pid) ->
-        GenServer.call(__MODULE__, :current)
+        GenServer.call(server, :current)
 
       _ ->
         Workflow.load()
     end
   end
 
-  @spec force_reload() :: :ok | {:error, term()}
-  def force_reload do
-    case Process.whereis(__MODULE__) do
+  @spec force_reload(GenServer.server()) :: :ok | {:error, term()}
+  def force_reload(server \\ __MODULE__) do
+    case GenServer.whereis(server) do
       pid when is_pid(pid) ->
-        GenServer.call(__MODULE__, :force_reload)
+        GenServer.call(server, :force_reload)
 
       _ ->
         case Workflow.load() do
@@ -47,8 +53,11 @@ defmodule SymphonyElixir.WorkflowStore do
   end
 
   @impl true
-  def init(_opts) do
-    case load_state(Workflow.workflow_file_path()) do
+  def init(opts) do
+    follow_global_path = !Keyword.has_key?(opts, :workflow_path)
+    path = Keyword.get(opts, :workflow_path) || Workflow.workflow_file_path()
+
+    case load_state(path, follow_global_path) do
       {:ok, state} ->
         schedule_poll()
         {:ok, state}
@@ -93,7 +102,7 @@ defmodule SymphonyElixir.WorkflowStore do
     Process.send_after(self(), :poll, @poll_interval_ms)
   end
 
-  defp reload_state(%State{} = state) do
+  defp reload_state(%State{follow_global_path: true} = state) do
     path = Workflow.workflow_file_path()
 
     if path != state.path do
@@ -103,8 +112,12 @@ defmodule SymphonyElixir.WorkflowStore do
     end
   end
 
+  defp reload_state(%State{} = state) do
+    reload_current_path(state.path, state)
+  end
+
   defp reload_path(path, state) do
-    case load_state(path) do
+    case load_state(path, state.follow_global_path) do
       {:ok, new_state} ->
         {:ok, new_state}
 
@@ -128,10 +141,10 @@ defmodule SymphonyElixir.WorkflowStore do
     end
   end
 
-  defp load_state(path) do
+  defp load_state(path, follow_global_path) do
     with {:ok, workflow} <- Workflow.load(path),
          {:ok, stamp} <- current_stamp(path) do
-      {:ok, %State{path: path, stamp: stamp, workflow: workflow}}
+      {:ok, %State{path: path, stamp: stamp, workflow: workflow, follow_global_path: follow_global_path}}
     else
       {:error, reason} ->
         {:error, reason}

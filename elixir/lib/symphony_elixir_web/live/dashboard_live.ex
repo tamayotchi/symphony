@@ -106,6 +106,49 @@ defmodule SymphonyElixirWeb.DashboardLive do
           </article>
         </section>
 
+        <%= if Map.get(@payload, :projects, []) != [] do %>
+          <section class="section-card">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">Projects</h2>
+                <p class="section-copy">All project runtimes managed by this Symphony node.</p>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="data-table" style="min-width: 760px;">
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th>Status</th>
+                    <th>Running</th>
+                    <th>Retrying</th>
+                    <th>Tokens</th>
+                    <th>Workflow</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={project <- Map.get(@payload, :projects, [])}>
+                    <td>
+                      <div class="issue-stack">
+                        <span class="issue-id"><%= project.project_id %></span>
+                        <span class="muted"><%= project.project_slug || "n/a" %></span>
+                      </div>
+                    </td>
+                    <td>
+                      <span class={state_badge_class(project.status)}><%= project.status %></span>
+                    </td>
+                    <td class="numeric"><%= project.counts.running %></td>
+                    <td class="numeric"><%= project.counts.retrying %></td>
+                    <td class="numeric"><%= format_int(project.codex_totals.total_tokens) %></td>
+                    <td class="mono"><%= project.workflow_path %></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        <% end %>
+
         <section class="section-card">
           <div class="section-header">
             <div>
@@ -131,6 +174,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
             <div class="table-wrap">
               <table class="data-table data-table-running">
                 <colgroup>
+                  <col style="width: 9rem;" />
                   <col style="width: 12rem;" />
                   <col style="width: 8rem;" />
                   <col style="width: 7.5rem;" />
@@ -140,6 +184,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                 </colgroup>
                 <thead>
                   <tr>
+                    <th>Project</th>
                     <th>Issue</th>
                     <th>State</th>
                     <th>Session</th>
@@ -150,6 +195,9 @@ defmodule SymphonyElixirWeb.DashboardLive do
                 </thead>
                 <tbody>
                   <tr :for={entry <- @payload.running}>
+                    <td>
+                      <span class="issue-id"><%= entry.project_id %></span>
+                    </td>
                     <td>
                       <div class="issue-stack">
                         <span class="issue-id"><%= entry.issue_identifier %></span>
@@ -221,6 +269,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
               <table class="data-table" style="min-width: 680px;">
                 <thead>
                   <tr>
+                    <th>Project</th>
                     <th>Issue</th>
                     <th>Attempt</th>
                     <th>Due at</th>
@@ -229,6 +278,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                 </thead>
                 <tbody>
                   <tr :for={entry <- @payload.retrying}>
+                    <td><%= entry.project_id %></td>
                     <td>
                       <div class="issue-stack">
                         <span class="issue-id"><%= entry.issue_identifier %></span>
@@ -250,11 +300,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
   end
 
   defp load_payload do
-    Presenter.state_payload(orchestrator(), snapshot_timeout_ms())
-  end
-
-  defp orchestrator do
-    Endpoint.config(:orchestrator) || SymphonyElixir.Orchestrator
+    Presenter.state_payload(snapshot_timeout_ms())
   end
 
   defp snapshot_timeout_ms do

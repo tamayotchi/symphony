@@ -1,16 +1,16 @@
 defmodule SymphonyElixir.CLI do
   @moduledoc """
-  Escript entrypoint for running Symphony with an explicit WORKFLOW.md path.
+  Escript entrypoint for running Symphony with an explicit manifest path.
   """
 
-  alias SymphonyElixir.LogFile
+  alias SymphonyElixir.{BootConfig, LogFile}
 
   @switches [logs_root: :string, port: :integer]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
           file_regular?: (String.t() -> boolean()),
-          set_workflow_file_path: (String.t() -> :ok | {:error, term()}),
+          set_manifest_file_path: (String.t() -> :ok | {:error, term()}),
           set_logs_root: (String.t() -> :ok | {:error, term()}),
           set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
           ensure_all_started: (-> ensure_started_result())
@@ -34,13 +34,13 @@ defmodule SymphonyElixir.CLI do
       {opts, [], []} ->
         with :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps) do
-          run(Path.expand("WORKFLOW.md"), deps)
+          run(Path.expand("SYMPHONY.md"), deps)
         end
 
-      {opts, [workflow_path], []} ->
+      {opts, [manifest_path], []} ->
         with :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps) do
-          run(workflow_path, deps)
+          run(manifest_path, deps)
         end
 
       _ ->
@@ -49,34 +49,34 @@ defmodule SymphonyElixir.CLI do
   end
 
   @spec run(String.t(), deps()) :: :ok | {:error, String.t()}
-  def run(workflow_path, deps) do
-    expanded_path = Path.expand(workflow_path)
+  def run(manifest_path, deps) do
+    expanded_path = Path.expand(manifest_path)
 
     if deps.file_regular?.(expanded_path) do
-      :ok = deps.set_workflow_file_path.(expanded_path)
+      :ok = deps.set_manifest_file_path.(expanded_path)
 
       case deps.ensure_all_started.() do
         {:ok, _started_apps} ->
           :ok
 
         {:error, reason} ->
-          {:error, "Failed to start Symphony with workflow #{expanded_path}: #{inspect(reason)}"}
+          {:error, "Failed to start Symphony with manifest #{expanded_path}: #{inspect(reason)}"}
       end
     else
-      {:error, "Workflow file not found: #{expanded_path}"}
+      {:error, "Manifest file not found: #{expanded_path}"}
     end
   end
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
+    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-SYMPHONY.md]"
   end
 
   @spec runtime_deps() :: deps()
   defp runtime_deps do
     %{
       file_regular?: &File.regular?/1,
-      set_workflow_file_path: &SymphonyElixir.Workflow.set_workflow_file_path/1,
+      set_manifest_file_path: &BootConfig.set_manifest_file_path/1,
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
       ensure_all_started: fn -> Application.ensure_all_started(:symphony_elixir) end
