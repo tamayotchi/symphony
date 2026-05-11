@@ -407,6 +407,127 @@ pre,
   font-size: 0.9rem;
 }
 
+.terminal-row td {
+  padding-top: 0;
+}
+
+.terminal-disclosure {
+  border: 1px solid rgba(217, 217, 227, 0.82);
+  border-radius: 18px;
+  background: #0f1117;
+  color: #f8fafc;
+  overflow: hidden;
+}
+
+.terminal-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.76rem 0.95rem;
+  cursor: pointer;
+  color: #f8fafc;
+  font-weight: 700;
+}
+
+.terminal-summary:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.terminal-summary-meta,
+.terminal-meta,
+.terminal-pill {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.terminal-panel {
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  padding: 0.85rem;
+}
+
+.terminal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.terminal-timeline {
+  display: grid;
+  gap: 0.68rem;
+  max-height: 32rem;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.terminal-entry {
+  display: grid;
+  grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr);
+  gap: 0.7rem;
+  padding: 0.72rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-left-width: 4px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.terminal-entry-user {
+  border-left-color: #38bdf8;
+}
+
+.terminal-entry-assistant {
+  border-left-color: var(--accent);
+}
+
+.terminal-entry-thinking {
+  border-left-color: #a78bfa;
+}
+
+.terminal-entry-tool {
+  border-left-color: #f59e0b;
+}
+
+.terminal-entry-system {
+  border-left-color: #94a3b8;
+}
+
+.terminal-entry-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: start;
+  gap: 0.35rem;
+  color: #cbd5e1;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.terminal-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 1.35rem;
+  padding: 0 0.45rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.terminal-entry-text {
+  color: #e2e8f0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal-empty {
+  margin: 0;
+  color: #cbd5e1;
+}
+
 .empty-state {
   margin: 1rem 0 0;
   color: var(--muted);
@@ -452,6 +573,15 @@ pre,
 @media (max-width: 560px) {
   .metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .terminal-entry {
+    grid-template-columns: 1fr;
+  }
+
+  .terminal-summary {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .section-card,
