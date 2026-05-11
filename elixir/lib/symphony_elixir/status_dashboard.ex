@@ -394,8 +394,7 @@ defmodule SymphonyElixir.StatusDashboard do
   defp format_project_link_lines do
     project_ids =
       Projects.projects()
-      |> Enum.map(& &1.id)
-      |> Enum.join(", ")
+      |> Enum.map_join(", ", & &1.id)
 
     project_line =
       colorize("│ Projects: ", @ansi_bold) <>

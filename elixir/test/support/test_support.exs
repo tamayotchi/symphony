@@ -205,18 +205,18 @@ defmodule SymphonyElixir.TestSupport do
         "  turn_timeout_ms: #{yaml_value(codex_turn_timeout_ms)}",
         "  read_timeout_ms: #{yaml_value(codex_read_timeout_ms)}",
         "  stall_timeout_ms: #{yaml_value(codex_stall_timeout_ms)}",
-        pi_yaml(
-          pi_command,
-          pi_response_timeout_ms,
-          pi_session_dir_name,
-          pi_append_system_prompt,
-          pi_extension_paths,
-          pi_disable_extensions,
-          pi_disable_themes,
-          pi_model_provider,
-          pi_model_id,
-          pi_thinking_level
-        ),
+        pi_yaml(%{
+          command: pi_command,
+          response_timeout_ms: pi_response_timeout_ms,
+          session_dir_name: pi_session_dir_name,
+          append_system_prompt: pi_append_system_prompt,
+          extension_paths: pi_extension_paths,
+          disable_extensions: pi_disable_extensions,
+          disable_themes: pi_disable_themes,
+          model_provider: pi_model_provider,
+          model_id: pi_model_id,
+          thinking_level: pi_thinking_level
+        }),
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         "---",
         prompt
@@ -279,39 +279,61 @@ defmodule SymphonyElixir.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp pi_yaml(command, response_timeout_ms, session_dir_name, append_system_prompt, extension_paths, disable_extensions, disable_themes, model_provider, model_id, thinking_level)
-       when is_nil(command) and is_nil(response_timeout_ms) and is_nil(session_dir_name) and is_nil(append_system_prompt) and extension_paths in [nil, []] and
-              is_nil(disable_extensions) and is_nil(disable_themes) and is_nil(model_provider) and is_nil(model_id) and is_nil(thinking_level),
-       do: nil
-
-  defp pi_yaml(command, response_timeout_ms, session_dir_name, append_system_prompt, extension_paths, disable_extensions, disable_themes, model_provider, model_id, thinking_level) do
-    model_yaml =
-      cond do
-        is_binary(model_provider) and is_binary(model_id) ->
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
+  defp pi_yaml(%{
+         command: command,
+         response_timeout_ms: response_timeout_ms,
+         session_dir_name: session_dir_name,
+         append_system_prompt: append_system_prompt,
+         extension_paths: extension_paths,
+         disable_extensions: disable_extensions,
+         disable_themes: disable_themes,
+         model_provider: model_provider,
+         model_id: model_id,
+         thinking_level: thinking_level
+       }) do
+    if Enum.all?([
+         is_nil(command),
+         is_nil(response_timeout_ms),
+         is_nil(session_dir_name),
+         is_nil(append_system_prompt),
+         extension_paths in [nil, []],
+         is_nil(disable_extensions),
+         is_nil(disable_themes),
+         is_nil(model_provider),
+         is_nil(model_id),
+         is_nil(thinking_level)
+       ]) do
+      nil
+    else
+      model_yaml =
+        if is_binary(model_provider) and is_binary(model_id) do
           [
             "  model:",
             "    provider: #{yaml_value(model_provider)}",
             "    model_id: #{yaml_value(model_id)}"
           ]
-
-        true ->
+        else
           []
-      end
+        end
 
-    [
-      "pi:",
-      command && "  command: #{yaml_value(command)}",
-      response_timeout_ms && "  response_timeout_ms: #{yaml_value(response_timeout_ms)}",
-      session_dir_name && "  session_dir_name: #{yaml_value(session_dir_name)}",
-      !is_nil(append_system_prompt) && "  append_system_prompt: #{yaml_value(append_system_prompt)}",
-      extension_paths not in [nil, []] && "  extension_paths: #{yaml_value(extension_paths)}",
-      !is_nil(disable_extensions) && "  disable_extensions: #{yaml_value(disable_extensions)}",
-      !is_nil(disable_themes) && "  disable_themes: #{yaml_value(disable_themes)}",
-      thinking_level && "  thinking_level: #{yaml_value(thinking_level)}"
-    ]
-    |> Kernel.++(model_yaml)
-    |> Enum.reject(&(&1 in [nil, false]))
-    |> Enum.join("\n")
+      [
+        "pi:",
+        command && "  command: #{yaml_value(command)}",
+        response_timeout_ms && "  response_timeout_ms: #{yaml_value(response_timeout_ms)}",
+        session_dir_name && "  session_dir_name: #{yaml_value(session_dir_name)}",
+        !is_nil(append_system_prompt) &&
+          "  append_system_prompt: #{yaml_value(append_system_prompt)}",
+        extension_paths not in [nil, []] && "  extension_paths: #{yaml_value(extension_paths)}",
+        !is_nil(disable_extensions) &&
+          "  disable_extensions: #{yaml_value(disable_extensions)}",
+        !is_nil(disable_themes) && "  disable_themes: #{yaml_value(disable_themes)}",
+        thinking_level && "  thinking_level: #{yaml_value(thinking_level)}"
+      ]
+      |> Kernel.++(model_yaml)
+      |> Enum.reject(&(&1 in [nil, false]))
+      |> Enum.join("\n")
+    end
   end
 
   defp hook_entry(_name, nil), do: nil

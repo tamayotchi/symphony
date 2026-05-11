@@ -19,7 +19,7 @@ defmodule SymphonyElixir.Application do
 
   use Application
 
-  alias SymphonyElixir.{BootConfig, Orchestrator, Projects, Workflow, WorkflowStore}
+  alias SymphonyElixir.{BootConfig, Orchestrator, Projects, WorkflowStore}
 
   @impl true
   def start(_type, _args) do
@@ -45,22 +45,11 @@ defmodule SymphonyElixir.Application do
   defp children_for(%{projects: projects}) do
     [
       {Phoenix.PubSub, name: SymphonyElixir.PubSub},
-      {Task.Supervisor, name: SymphonyElixir.TaskSupervisor}
-    ] ++
-      maybe_global_workflow_store_child() ++
-      [
-        project_runtime_supervisor(projects),
-        SymphonyElixir.HttpServer,
-        SymphonyElixir.StatusDashboard
-      ]
-  end
-
-  defp maybe_global_workflow_store_child do
-    if File.regular?(Workflow.workflow_file_path()) do
-      [WorkflowStore]
-    else
-      []
-    end
+      {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
+      project_runtime_supervisor(projects),
+      SymphonyElixir.HttpServer,
+      SymphonyElixir.StatusDashboard
+    ]
   end
 
   defp project_runtime_supervisor(projects) do

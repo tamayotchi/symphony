@@ -198,7 +198,7 @@ defmodule SymphonyElixir.MultiProjectTest do
     }
 
     assert :ok = BootConfig.put(boot_config)
-    assert Projects.enabled?()
+    assert Enum.map(Projects.projects(), & &1.id) == ["backend", "frontend"]
 
     payload = Presenter.state_payload(50)
 
@@ -267,7 +267,13 @@ defmodule SymphonyElixir.MultiProjectTest do
              [
                name: backend_orchestrator,
                snapshot_delay_ms: 80,
-               snapshot: %{running: [], retrying: [], codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}, rate_limits: nil, polling: nil}
+               snapshot: %{
+                 running: [],
+                 retrying: [],
+                 codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+                 rate_limits: nil,
+                 polling: nil
+               }
              ]
            ]}
       })
@@ -281,7 +287,13 @@ defmodule SymphonyElixir.MultiProjectTest do
              [
                name: frontend_orchestrator,
                snapshot_delay_ms: 80,
-               snapshot: %{running: [], retrying: [], codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}, rate_limits: nil, polling: nil}
+               snapshot: %{
+                 running: [],
+                 retrying: [],
+                 codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+                 rate_limits: nil,
+                 polling: nil
+               }
              ]
            ]}
       })
@@ -316,7 +328,13 @@ defmodule SymphonyElixir.MultiProjectTest do
              [
                name: backend_orchestrator,
                snapshot_delay_ms: 80,
-               snapshot: %{running: [], retrying: [], codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}, rate_limits: nil, polling: nil}
+               snapshot: %{
+                 running: [],
+                 retrying: [],
+                 codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+                 rate_limits: nil,
+                 polling: nil
+               }
              ]
            ]}
       })
@@ -409,7 +427,12 @@ defmodule SymphonyElixir.MultiProjectTest do
            ]}
       })
 
-    root = Path.join(System.tmp_dir!(), "symphony-project-fallback-#{System.unique_integer([:positive])}")
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-project-fallback-#{System.unique_integer([:positive])}"
+      )
+
     File.mkdir_p!(root)
     workflow_path = Path.join(root, "backend/WORKFLOW.md")
     File.mkdir_p!(Path.dirname(workflow_path))
@@ -450,7 +473,11 @@ defmodule SymphonyElixir.MultiProjectTest do
            [
              [
                name: backend_orchestrator,
-               snapshot: %{running: [], retrying: [], codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}},
+               snapshot: %{
+                 running: [],
+                 retrying: [],
+                 codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}
+               },
                refresh: :unavailable
              ]
            ]}
@@ -464,7 +491,11 @@ defmodule SymphonyElixir.MultiProjectTest do
            [
              [
                name: frontend_orchestrator,
-               snapshot: %{running: [], retrying: [], codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}},
+               snapshot: %{
+                 running: [],
+                 retrying: [],
+                 codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}
+               },
                refresh: :unavailable
              ]
            ]}

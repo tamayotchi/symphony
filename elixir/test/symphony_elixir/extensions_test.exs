@@ -121,10 +121,11 @@ defmodule SymphonyElixir.ExtensionsTest do
     Workflow.set_workflow_file_path(third_workflow)
     assert {:ok, %{prompt: "Third prompt"}} = Workflow.current()
 
-    assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, WorkflowStore)
+    stop_workflow_store()
+
     assert {:ok, %{prompt: "Third prompt"}} = WorkflowStore.current()
     assert :ok = WorkflowStore.force_reload()
-    assert {:ok, _pid} = Supervisor.restart_child(SymphonyElixir.Supervisor, WorkflowStore)
+    assert {:ok, _pid} = WorkflowStore.start_link()
   end
 
   test "workflow store init stops on missing workflow file" do
@@ -140,7 +141,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     manual_path = Path.join(Path.dirname(existing_path), "MANUAL_WORKFLOW.md")
     missing_path = Path.join(Path.dirname(existing_path), "MANUAL_MISSING_WORKFLOW.md")
 
-    assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, WorkflowStore)
+    stop_workflow_store()
 
     Workflow.set_workflow_file_path(missing_path)
 
@@ -149,6 +150,8 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     write_workflow_file!(manual_path, prompt: "Manual workflow prompt")
     Workflow.set_workflow_file_path(manual_path)
+
+    stop_workflow_store()
 
     assert {:ok, manual_pid} = WorkflowStore.start_link()
     assert Process.alive?(manual_pid)
@@ -172,12 +175,10 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert_receive :poll, 1_100
 
     Process.exit(manual_pid, :normal)
-    restart_result = Supervisor.restart_child(SymphonyElixir.Supervisor, WorkflowStore)
-
-    assert match?({:ok, _pid}, restart_result) or
-             match?({:error, {:already_started, _pid}}, restart_result)
+    stop_workflow_store()
 
     Workflow.set_workflow_file_path(existing_path)
+    assert {:ok, _pid} = WorkflowStore.start_link()
     WorkflowStore.force_reload()
   end
 
@@ -834,10 +835,25 @@ defmodule SymphonyElixir.ExtensionsTest do
     if Process.whereis(WorkflowStore) do
       :ok
     else
-      case Supervisor.restart_child(SymphonyElixir.Supervisor, WorkflowStore) do
-        {:ok, _pid} -> :ok
-        {:error, {:already_started, _pid}} -> :ok
-      end
+      {:ok, _pid} = WorkflowStore.start_link()
+      :ok
+    end
+  end
+
+  defp stop_workflow_store do
+    case Process.whereis(WorkflowStore) do
+      pid when is_pid(pid) ->
+        ref = Process.monitor(pid)
+        GenServer.stop(pid)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+        after
+          100 -> :ok
+        end
+
+      _ ->
+        :ok
     end
   end
 end

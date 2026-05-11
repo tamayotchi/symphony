@@ -5,14 +5,13 @@ defmodule SymphonyElixir.Workflow do
 
   alias SymphonyElixir.{RuntimeContext, WorkflowStore}
 
-  @workflow_file_name "WORKFLOW.md"
-
   @spec workflow_file_path(keyword()) :: Path.t()
   def workflow_file_path(opts \\ []) do
     Keyword.get(opts, :workflow_path) ||
       RuntimeContext.workflow_path() ||
       Application.get_env(:symphony_elixir, :workflow_file_path) ||
-      Path.join(File.cwd!(), @workflow_file_name)
+      raise ArgumentError,
+            "workflow_path is required; provide it explicitly, via runtime context, or via test setup"
   end
 
   @spec set_workflow_file_path(Path.t()) :: :ok

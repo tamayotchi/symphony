@@ -5,11 +5,6 @@ defmodule SymphonyElixir.Projects do
 
   alias SymphonyElixir.{BootConfig, Orchestrator}
 
-  @spec enabled?() :: boolean()
-  def enabled? do
-    projects() != []
-  end
-
   @spec projects() :: [map()]
   def projects do
     BootConfig.projects()

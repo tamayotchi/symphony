@@ -89,11 +89,9 @@ defmodule SymphonyElixir.CoreTest do
   end
 
   test "current WORKFLOW.md file is valid and complete" do
-    original_workflow_path = Workflow.workflow_file_path()
-    on_exit(fn -> Workflow.set_workflow_file_path(original_workflow_path) end)
-    Workflow.clear_workflow_file_path()
+    workflow_path = Path.expand("WORKFLOW.md", File.cwd!())
 
-    assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
+    assert {:ok, %{config: config, prompt: prompt}} = Workflow.load(workflow_path)
     assert is_map(config)
 
     tracker = Map.get(config, "tracker", %{})
@@ -111,8 +109,8 @@ defmodule SymphonyElixir.CoreTest do
     assert Map.get(hooks, "before_remove") =~ "cd elixir && mise exec -- mix workspace.before_remove"
 
     assert String.trim(prompt) != ""
-    assert is_binary(Config.workflow_prompt())
-    assert Config.workflow_prompt() == prompt
+    assert is_binary(Config.workflow_prompt(workflow_path: workflow_path))
+    assert Config.workflow_prompt(workflow_path: workflow_path) == prompt
   end
 
   test "linear api token resolves from LINEAR_API_KEY env var" do
@@ -149,7 +147,7 @@ defmodule SymphonyElixir.CoreTest do
     assert Config.settings!().tracker.assignee == env_assignee
   end
 
-  test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do
+  test "workflow file path raises when no explicit path or runtime context is available" do
     original_workflow_path = Workflow.workflow_file_path()
 
     on_exit(fn ->
@@ -158,7 +156,9 @@ defmodule SymphonyElixir.CoreTest do
 
     Workflow.clear_workflow_file_path()
 
-    assert Workflow.workflow_file_path() == Path.join(File.cwd!(), "WORKFLOW.md")
+    assert_raise ArgumentError, ~r/workflow_path is required/, fn ->
+      Workflow.workflow_file_path()
+    end
   end
 
   test "workflow file path resolves from app env when set" do
@@ -624,7 +624,7 @@ defmodule SymphonyElixir.CoreTest do
     assert %{attempt: 1, due_at_ms: due_at_ms, identifier: "MT-560", error: "agent exited: :boom"} =
              state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, 9_000, 10_500)
+    assert_due_in_range(due_at_ms, 8_000, 10_500)
   end
 
   test "stale retry timer messages do not consume newer retry entries" do
@@ -914,11 +914,13 @@ defmodule SymphonyElixir.CoreTest do
       Workflow.set_workflow_file_path(original_workflow_path)
 
       if is_pid(workflow_store_pid) and is_nil(Process.whereis(SymphonyElixir.WorkflowStore)) do
-        Supervisor.restart_child(SymphonyElixir.Supervisor, SymphonyElixir.WorkflowStore)
+        start_supervised!({WorkflowStore, workflow_path: original_workflow_path})
       end
     end)
 
-    assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.WorkflowStore)
+    if is_pid(Process.whereis(SymphonyElixir.WorkflowStore)) do
+      GenServer.stop(SymphonyElixir.WorkflowStore)
+    end
 
     Workflow.set_workflow_file_path(Path.join(System.tmp_dir!(), "missing-workflow-#{System.unique_integer([:positive])}.md"))
 

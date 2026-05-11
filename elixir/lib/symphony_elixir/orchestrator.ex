@@ -685,6 +685,12 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
+  defp run_issue_with_context(runtime_context, issue, recipient, attempt, worker_host) do
+    RuntimeContext.with_context(runtime_context, fn ->
+      AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host)
+    end)
+  end
+
   defp do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
     recipient = self()
 
@@ -701,11 +707,10 @@ defmodule SymphonyElixir.Orchestrator do
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
     runtime_context = context_from_state(state)
 
-    case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
-           RuntimeContext.with_context(runtime_context, fn ->
-             AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host)
-           end)
-         end) do
+    case Task.Supervisor.start_child(
+           SymphonyElixir.TaskSupervisor,
+           fn -> run_issue_with_context(runtime_context, issue, recipient, attempt, worker_host) end
+         ) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
 

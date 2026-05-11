@@ -572,10 +572,17 @@ defmodule SymphonyElixir.Config.Schema do
 
   defp normalize_pi_extension_paths(paths, opts) when is_list(paths) do
     workflow_dir =
-      opts
-      |> Keyword.get(:workflow_path, Workflow.workflow_file_path())
-      |> Path.dirname()
-      |> Path.expand()
+      case Keyword.get(opts, :workflow_path) do
+        workflow_path when is_binary(workflow_path) ->
+          workflow_path
+          |> Path.dirname()
+          |> Path.expand()
+
+        _ ->
+          Workflow.workflow_file_path()
+          |> Path.dirname()
+          |> Path.expand()
+      end
 
     paths
     |> Enum.map(&normalize_pi_extension_path(&1, workflow_dir))

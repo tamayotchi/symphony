@@ -55,8 +55,9 @@ defmodule SymphonyElixir.WorkflowStore do
   @impl true
   def init(opts) do
     follow_global_path = !Keyword.has_key?(opts, :workflow_path)
+    path = Keyword.get(opts, :workflow_path) || Workflow.workflow_file_path()
 
-    case load_state(Keyword.get(opts, :workflow_path, Workflow.workflow_file_path()), follow_global_path) do
+    case load_state(path, follow_global_path) do
       {:ok, state} ->
         schedule_poll()
         {:ok, state}

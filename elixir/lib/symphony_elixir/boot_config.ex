@@ -106,21 +106,29 @@ defmodule SymphonyElixir.BootConfig do
     projects
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, {MapSet.new(), []}}, fn {project, index}, {:ok, {ids, acc}} ->
-      case resolve_project(project, manifest_dir) do
-        {:ok, %{id: id} = resolved} ->
-          if MapSet.member?(ids, id) do
-            {:halt, {:error, {:invalid_project_manifest, "projects[#{index}].id must be unique"}}}
-          else
-            {:cont, {:ok, {MapSet.put(ids, id), [resolved | acc]}}}
-          end
-
-        {:error, reason} ->
-          {:halt, {:error, {:invalid_project_manifest, "projects[#{index}] #{reason}"}}}
-      end
+      reduce_resolved_project(project, index, manifest_dir, ids, acc)
     end)
     |> case do
       {:ok, {_ids, resolved_projects}} -> {:ok, Enum.reverse(resolved_projects)}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp reduce_resolved_project(project, index, manifest_dir, ids, acc) do
+    case resolve_project(project, manifest_dir) do
+      {:ok, %{id: id} = resolved} ->
+        handle_resolved_project(index, ids, acc, id, resolved)
+
+      {:error, reason} ->
+        {:halt, {:error, {:invalid_project_manifest, "projects[#{index}] #{reason}"}}}
+    end
+  end
+
+  defp handle_resolved_project(index, ids, acc, id, resolved) do
+    if MapSet.member?(ids, id) do
+      {:halt, {:error, {:invalid_project_manifest, "projects[#{index}].id must be unique"}}}
+    else
+      {:cont, {:ok, {MapSet.put(ids, id), [resolved | acc]}}}
     end
   end
 

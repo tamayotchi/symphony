@@ -4,13 +4,13 @@ defmodule SymphonyElixir.RuntimeContext do
   @context_key {__MODULE__, :context}
 
   @type t :: %{
-          optional(:project_id) => String.t(),
-          optional(:workflow_path) => Path.t()
+          project_id: String.t() | nil,
+          workflow_path: Path.t() | nil
         }
 
   @spec get() :: t()
   def get do
-    Process.get(@context_key, %{})
+    Process.get(@context_key, empty_context())
   end
 
   @spec put(map()) :: :ok
@@ -35,7 +35,7 @@ defmodule SymphonyElixir.RuntimeContext do
     get()[:project_id]
   end
 
-  @spec with_context(map(), (() -> result)) :: result when result: var
+  @spec with_context(map(), (-> result)) :: result when result: var
   def with_context(context, fun) when is_map(context) and is_function(fun, 0) do
     previous = get()
 
@@ -43,11 +43,15 @@ defmodule SymphonyElixir.RuntimeContext do
       put(context)
       fun.()
     after
-      if previous == %{} do
+      if previous == empty_context() do
         clear()
       else
         Process.put(@context_key, previous)
       end
     end
+  end
+
+  defp empty_context do
+    %{project_id: nil, workflow_path: nil}
   end
 end
