@@ -87,8 +87,32 @@ defmodule SymphonyElixirWeb.DashboardLiveTest do
       |> DashboardLive.render()
       |> rendered_to_string()
 
+    assert html =~ "Terminal history"
+    assert html =~ "No terminal history found yet"
     refute html =~ "Open live terminal"
     refute html =~ "waiting for Pi RPC session"
+  end
+
+  test "renders terminal history empty state when there are no active sessions or discovered transcripts" do
+    html =
+      %{
+        payload: %{
+          counts: %{running: 0, retrying: 0},
+          running: [],
+          terminal_history: [],
+          retrying: [],
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          rate_limits: nil
+        },
+        now: DateTime.utc_now()
+      }
+      |> DashboardLive.render()
+      |> rendered_to_string()
+
+    assert html =~ "No active sessions."
+    assert html =~ "Terminal history"
+    assert html =~ "No terminal history found yet"
+    assert html =~ ".pi-rpc-sessions"
   end
 
   test "renders friendly unavailable message without exposing raw transcript paths" do

@@ -110,11 +110,19 @@ defmodule SymphonyElixir.MultiProjectTest do
     backend_session_dir = Path.join([backend_workspace, ".pi-rpc-sessions", "history"])
     backend_session_file = Path.join(backend_session_dir, "session.jsonl")
     backend_proof_dir = Path.join(backend_session_dir, "proof")
+    frontend_history_dir = Path.join([root, "frontend-workspaces", "FE-OLD", ".pi-rpc-sessions", "history"])
+    frontend_history_file = Path.join(frontend_history_dir, "archived-session.jsonl")
     File.mkdir_p!(backend_session_dir)
+    File.mkdir_p!(frontend_history_dir)
 
     File.write!(
       backend_session_file,
       Jason.encode!(%{"type" => "message", "message" => %{"role" => "assistant", "content" => [%{"type" => "text", "text" => "backend transcript"}]}}) <> "\n"
+    )
+
+    File.write!(
+      frontend_history_file,
+      Jason.encode!(%{"type" => "message", "message" => %{"role" => "assistant", "content" => [%{"type" => "text", "text" => "frontend archived transcript"}]}}) <> "\n"
     )
 
     backend_orchestrator = Module.concat(__MODULE__, :BackendOrchestrator)
@@ -230,11 +238,19 @@ defmodule SymphonyElixir.MultiProjectTest do
     assert running_entry.proof_events_path == Path.join(backend_proof_dir, "events.jsonl")
     assert running_entry.proof_summary_path == Path.join(backend_proof_dir, "summary.json")
 
-    assert [history_entry] = payload.terminal_history
-    assert history_entry.issue_identifier == "BE-1"
+    assert length(payload.terminal_history) == 2
+    history_by_issue = Map.new(payload.terminal_history, &{&1.issue_identifier, &1})
+
+    assert history_entry = history_by_issue["BE-1"]
     assert history_entry.session_file == backend_session_file
     assert history_entry.terminal_transcript.available == true
     assert [%{text: "backend transcript"}] = history_entry.terminal_transcript.entries
+
+    assert frontend_history_entry = history_by_issue["FE-OLD"]
+    assert frontend_history_entry.project_id == "frontend"
+    assert frontend_history_entry.session_file == frontend_history_file
+    assert frontend_history_entry.state == "Terminal history"
+    assert [%{text: "frontend archived transcript"}] = frontend_history_entry.terminal_transcript.entries
 
     assert {:ok, issue_payload} = Presenter.issue_payload("BE-1", 50)
     assert issue_payload.project_id == "backend"

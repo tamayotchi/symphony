@@ -433,9 +433,18 @@ pre,
 }
 
 .terminal-history-copy,
-.terminal-history-meta {
+.terminal-history-meta,
+.terminal-history-empty {
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.terminal-history-empty {
+  margin: 0;
+  padding: 0.8rem;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .terminal-history-grid {

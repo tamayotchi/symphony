@@ -22,7 +22,7 @@ defmodule SymphonyElixirWeb.Presenter do
           },
           running: Enum.map(snapshot.running, &running_entry_payload/1),
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
-          terminal_history: terminal_history_payload(snapshot.running),
+          terminal_history: terminal_history_payload(snapshot.running, Map.get(snapshot, :projects, [])),
           codex_totals: snapshot.codex_totals,
           rate_limits: snapshot.rate_limits
         }
@@ -230,16 +230,25 @@ defmodule SymphonyElixirWeb.Presenter do
     end
   end
 
-  defp terminal_history_payload(running_entries) when is_list(running_entries) do
-    running_entries
-    |> Enum.flat_map(&terminal_history_entries/1)
+  defp terminal_history_payload(running_entries, project_entries) do
+    (running_history_entries(running_entries) ++ project_history_entries(project_entries))
     |> Enum.uniq_by(& &1.session_file)
     |> Enum.sort_by(& &1.updated_at_unix, :desc)
     |> Enum.take(@terminal_history_limit)
     |> Enum.map(&Map.delete(&1, :updated_at_unix))
   end
 
-  defp terminal_history_payload(_running_entries), do: []
+  defp running_history_entries(running_entries) when is_list(running_entries) do
+    Enum.flat_map(running_entries, &terminal_history_entries/1)
+  end
+
+  defp running_history_entries(_running_entries), do: []
+
+  defp project_history_entries(project_entries) when is_list(project_entries) do
+    Enum.flat_map(project_entries, &terminal_project_history_entries/1)
+  end
+
+  defp project_history_entries(_project_entries), do: []
 
   defp terminal_history_entries(running) when is_map(running) do
     running
@@ -253,7 +262,7 @@ defmodule SymphonyElixirWeb.Presenter do
   defp terminal_history_files(running) do
     running
     |> terminal_history_roots()
-    |> Enum.flat_map(fn root -> Path.wildcard(Path.join([root, "**", "*.jsonl"])) end)
+    |> Enum.flat_map(fn root -> Path.wildcard(Path.join([root, "**", "*.jsonl"]), match_dot: true) end)
     |> Kernel.++([Map.get(running, :session_file)])
     |> Enum.filter(&(is_binary(&1) and &1 != ""))
   end
@@ -263,11 +272,44 @@ defmodule SymphonyElixirWeb.Presenter do
     |> Enum.filter(&(is_binary(&1) and File.dir?(&1)))
   end
 
+  defp terminal_project_history_entries(%{workspace_root: workspace_root} = project) when is_binary(workspace_root) do
+    workspace_root
+    |> terminal_project_history_files()
+    |> Enum.map(&terminal_project_history_entry(project, &1))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp terminal_project_history_entries(_project), do: []
+
+  defp terminal_project_history_files(workspace_root) do
+    case configured_session_dir_name() do
+      session_dir_name when is_binary(session_dir_name) and session_dir_name != "" and is_binary(workspace_root) ->
+        if File.dir?(workspace_root) do
+          Path.wildcard(Path.join([workspace_root, "*", session_dir_name, "**", "*.jsonl"]), match_dot: true)
+        else
+          []
+        end
+
+      _ ->
+        []
+    end
+  end
+
   defp terminal_workspace_session_root(workspace_path) when is_binary(workspace_path) do
-    Path.join(workspace_path, Config.settings!().pi.session_dir_name)
+    case configured_session_dir_name() do
+      session_dir_name when is_binary(session_dir_name) and session_dir_name != "" -> Path.join(workspace_path, session_dir_name)
+      _ -> nil
+    end
   end
 
   defp terminal_workspace_session_root(_workspace_path), do: nil
+
+  defp configured_session_dir_name do
+    case Config.settings!().pi.session_dir_name do
+      session_dir_name when is_binary(session_dir_name) and session_dir_name != "" -> session_dir_name
+      _ -> ".pi-rpc-sessions"
+    end
+  end
 
   defp terminal_history_entry(running, session_file) do
     case File.stat(session_file, time: :posix) do
@@ -288,6 +330,42 @@ defmodule SymphonyElixirWeb.Presenter do
 
       _ ->
         nil
+    end
+  end
+
+  defp terminal_project_history_entry(%{workspace_root: workspace_root} = project, session_file) do
+    case File.stat(session_file, time: :posix) do
+      {:ok, %{type: :regular, mtime: updated_at_unix}} ->
+        transcript = SessionTranscript.read(session_file)
+
+        %{
+          issue_identifier: terminal_project_issue_identifier(workspace_root, session_file),
+          project_id: Map.get(project, :project_id),
+          state: "Terminal history",
+          session_id: terminal_history_session_id(session_file),
+          session_file: session_file,
+          updated_at: DateTime.from_unix!(updated_at_unix) |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+          updated_at_unix: updated_at_unix,
+          terminal_transcript: transcript
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp terminal_project_history_entry(_project, _session_file), do: nil
+
+  defp terminal_project_issue_identifier(workspace_root, session_file) do
+    terminal_issue_identifier_from_workspace(workspace_root, session_file) || terminal_history_session_id(session_file)
+  end
+
+  defp terminal_issue_identifier_from_workspace(workspace_root, session_file) do
+    relative = Path.relative_to(session_file, workspace_root)
+
+    case Path.split(relative) do
+      [issue_identifier | _rest] when issue_identifier not in ["", ".", ".."] -> issue_identifier
+      _ -> nil
     end
   end
 

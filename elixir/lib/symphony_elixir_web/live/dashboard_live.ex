@@ -263,34 +263,9 @@ defmodule SymphonyElixirWeb.DashboardLive do
                 </tbody>
               </table>
             </div>
-
-            <%= if terminal_history(@payload) != [] do %>
-              <section class="terminal-history" aria-label="Terminal history">
-                <div>
-                  <h3 class="terminal-history-title">Terminal history</h3>
-                  <p class="terminal-history-copy">Recent Pi RPC terminal transcripts for active workspaces. Open any entry to keep watching it live while the session file changes.</p>
-                </div>
-                <div class="terminal-history-grid">
-                  <article :for={entry <- terminal_history(@payload)} class="terminal-history-card">
-                    <div>
-                      <p class="terminal-history-issue"><%= entry.issue_identifier %></p>
-                      <p class="terminal-history-meta mono"><%= terminal_history_label(entry) %></p>
-                    </div>
-                    <button
-                      type="button"
-                      class="terminal-popout-button"
-                      data-popout-target={terminal_popout_id(entry)}
-                      data-popout-title={terminal_popout_title(entry)}
-                      onclick="const template = document.getElementById(this.dataset.popoutTarget); const popup = window.open('', this.dataset.popoutTarget, 'popup=yes,width=980,height=720,resizable=yes,scrollbars=yes'); if (popup && template) { popup.document.open(); popup.document.write(template.innerHTML); popup.document.close(); popup.focus(); }"
-                    >
-                      Open live terminal
-                    </button>
-                    <.terminal_popout_template entry={entry} id={terminal_popout_id(entry)} />
-                  </article>
-                </div>
-              </section>
-            <% end %>
           <% end %>
+
+          <.terminal_history_panel payload={@payload} />
         </section>
 
         <section class="section-card">
@@ -404,6 +379,39 @@ defmodule SymphonyElixirWeb.DashboardLive do
       String.contains?(normalized, ["todo", "queued", "pending", "retry"]) -> "#{base} state-badge-warning"
       true -> base
     end
+  end
+
+  defp terminal_history_panel(assigns) do
+    ~H"""
+    <section class="terminal-history" aria-label="Terminal history">
+      <div>
+        <h3 class="terminal-history-title">Terminal history</h3>
+        <p class="terminal-history-copy">Recent Pi RPC terminal transcripts found in project workspaces. Open any entry to keep watching it live while the session file changes.</p>
+      </div>
+      <%= if terminal_history(@payload) == [] do %>
+        <p class="terminal-history-empty">No terminal history found yet. Pi RPC transcripts will appear here after a session writes JSONL files under a project workspace's <span class="mono">.pi-rpc-sessions</span> directory.</p>
+      <% else %>
+        <div class="terminal-history-grid">
+          <article :for={entry <- terminal_history(@payload)} class="terminal-history-card">
+            <div>
+              <p class="terminal-history-issue"><%= entry.issue_identifier %></p>
+              <p class="terminal-history-meta mono"><%= terminal_history_label(entry) %></p>
+            </div>
+            <button
+              type="button"
+              class="terminal-popout-button"
+              data-popout-target={terminal_popout_id(entry)}
+              data-popout-title={terminal_popout_title(entry)}
+              onclick="const template = document.getElementById(this.dataset.popoutTarget); const popup = window.open('', this.dataset.popoutTarget, 'popup=yes,width=980,height=720,resizable=yes,scrollbars=yes'); if (popup && template) { popup.document.open(); popup.document.write(template.innerHTML); popup.document.close(); popup.focus(); }"
+            >
+              Open live terminal
+            </button>
+            <.terminal_popout_template entry={entry} id={terminal_popout_id(entry)} />
+          </article>
+        </div>
+      <% end %>
+    </section>
+    """
   end
 
   defp terminal_popout_template(assigns) do
