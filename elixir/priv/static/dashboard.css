@@ -412,6 +412,54 @@ pre,
   background: rgba(19, 163, 127, 0.16);
 }
 
+.terminal-history {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.terminal-history-title,
+.terminal-history-copy,
+.terminal-history-issue,
+.terminal-history-meta {
+  margin: 0;
+}
+
+.terminal-history-title {
+  font-size: 0.98rem;
+  letter-spacing: -0.02em;
+}
+
+.terminal-history-copy,
+.terminal-history-meta {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.terminal-history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.terminal-history-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.terminal-history-issue {
+  font-weight: 700;
+}
+
 .muted {
   color: var(--muted);
 }

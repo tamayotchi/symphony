@@ -210,7 +210,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                             data-popout-title={terminal_popout_title(entry)}
                             onclick="const template = document.getElementById(this.dataset.popoutTarget); const popup = window.open('', this.dataset.popoutTarget, 'popup=yes,width=980,height=720,resizable=yes,scrollbars=yes'); if (popup && template) { popup.document.open(); popup.document.write(template.innerHTML); popup.document.close(); popup.focus(); }"
                           >
-                            Open terminal
+                            Open live terminal
                           </button>
                           <.terminal_popout_template entry={entry} id={terminal_popout_id(entry)} />
                         <% end %>
@@ -263,6 +263,33 @@ defmodule SymphonyElixirWeb.DashboardLive do
                 </tbody>
               </table>
             </div>
+
+            <%= if terminal_history(@payload) != [] do %>
+              <section class="terminal-history" aria-label="Terminal history">
+                <div>
+                  <h3 class="terminal-history-title">Terminal history</h3>
+                  <p class="terminal-history-copy">Recent Pi RPC terminal transcripts for active workspaces. Open any entry to keep watching it live while the session file changes.</p>
+                </div>
+                <div class="terminal-history-grid">
+                  <article :for={entry <- terminal_history(@payload)} class="terminal-history-card">
+                    <div>
+                      <p class="terminal-history-issue"><%= entry.issue_identifier %></p>
+                      <p class="terminal-history-meta mono"><%= terminal_history_label(entry) %></p>
+                    </div>
+                    <button
+                      type="button"
+                      class="terminal-popout-button"
+                      data-popout-target={terminal_popout_id(entry)}
+                      data-popout-title={terminal_popout_title(entry)}
+                      onclick="const template = document.getElementById(this.dataset.popoutTarget); const popup = window.open('', this.dataset.popoutTarget, 'popup=yes,width=980,height=720,resizable=yes,scrollbars=yes'); if (popup && template) { popup.document.open(); popup.document.write(template.innerHTML); popup.document.close(); popup.focus(); }"
+                    >
+                      Open live terminal
+                    </button>
+                    <.terminal_popout_template entry={entry} id={terminal_popout_id(entry)} />
+                  </article>
+                </div>
+              </section>
+            <% end %>
           <% end %>
         </section>
 
@@ -381,7 +408,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   defp terminal_popout_template(assigns) do
     ~H"""
-    <template id={@id}>
+    <template id={@id} data-terminal-template="true">
       <html>
         <head>
           <meta charset="utf-8" />
@@ -396,6 +423,9 @@ defmodule SymphonyElixirWeb.DashboardLive do
             .muted, .terminal-meta, .terminal-pill { color: #94a3b8; }
             .mono, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
             .terminal-panel { border: 1px solid rgba(148, 163, 184, 0.24); border-radius: 18px; background: rgba(15, 23, 42, 0.86); box-shadow: 0 20px 70px rgba(0, 0, 0, 0.3); padding: 0.95rem; }
+            .live-indicator { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.28rem 0.58rem; border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 999px; background: rgba(34, 197, 94, 0.1); color: #86efac; font-size: 0.78rem; font-weight: 800; }
+            .live-indicator::before { content: ""; width: 0.48rem; height: 0.48rem; border-radius: 999px; background: #22c55e; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55); animation: pulse 1.6s infinite; }
+            @keyframes pulse { 70% { box-shadow: 0 0 0 0.42rem rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
             .terminal-meta { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.8rem; font-size: 0.85rem; font-weight: 700; }
             .terminal-timeline { display: grid; gap: 0.72rem; }
             .terminal-entry { display: grid; grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr); gap: 0.75rem; padding: 0.78rem; border: 1px solid rgba(148, 163, 184, 0.18); border-left-width: 4px; border-radius: 14px; background: rgba(2, 6, 23, 0.68); }
@@ -411,17 +441,19 @@ defmodule SymphonyElixirWeb.DashboardLive do
             @media (max-width: 720px) { main { padding: 0.8rem; } .terminal-entry { grid-template-columns: 1fr; } }
           </style>
         </head>
-        <body>
-          <main>
-            <header>
-              <div>
-                <p class="muted mono">Running session</p>
-                <h1>Terminal transcript for <%= @entry.issue_identifier %></h1>
-              </div>
-              <div class="muted mono"><%= terminal_popout_summary(@entry) %></div>
-            </header>
+        <body data-terminal-template-id={@id}>
+          <div data-terminal-popout-body data-live-refresh-ms="1000">
+            <main>
+              <header>
+                <div>
+                  <p class="muted mono">Running session</p>
+                  <h1>Terminal transcript for <%= @entry.issue_identifier %></h1>
+                </div>
+                <div class="muted mono"><%= terminal_popout_summary(@entry) %></div>
+                <span class="live-indicator">Live</span>
+              </header>
 
-            <section class="terminal-panel" role="region" aria-label={"Terminal transcript for #{@entry.issue_identifier}"}>
+              <section class="terminal-panel" role="region" aria-label={"Terminal transcript for #{@entry.issue_identifier}"}>
               <%= if terminal_available?(@entry) do %>
                 <div class="terminal-meta">
                   <span><%= terminal_source_label(@entry) %></span>
@@ -448,8 +480,38 @@ defmodule SymphonyElixirWeb.DashboardLive do
               <% else %>
                 <p class="terminal-empty"><%= terminal_unavailable_message(@entry) %></p>
               <% end %>
-            </section>
-          </main>
+              </section>
+            </main>
+          </div>
+          <script>
+            (() => {
+              const refreshMs = 1000;
+              const templateId = document.body.dataset.terminalTemplateId;
+
+              const nearBottom = () => Math.abs(window.innerHeight + window.scrollY - document.body.scrollHeight) < 96;
+
+              const syncFromOpener = () => {
+                if (!window.opener || window.opener.closed || !templateId) return;
+
+                const template = window.opener.document.getElementById(templateId);
+                const source = template && template.content && template.content.querySelector('[data-terminal-popout-body]');
+                const target = document.querySelector('[data-terminal-popout-body]');
+
+                if (!source || !target || source.innerHTML === target.innerHTML) return;
+
+                const shouldPinBottom = nearBottom();
+                target.innerHTML = source.innerHTML;
+
+                if (shouldPinBottom) {
+                  window.scrollTo(0, document.body.scrollHeight);
+                }
+              };
+
+              window.setInterval(syncFromOpener, refreshMs);
+              window.addEventListener('focus', syncFromOpener);
+              syncFromOpener();
+            })();
+          </script>
         </body>
       </html>
     </template>
@@ -466,12 +528,29 @@ defmodule SymphonyElixirWeb.DashboardLive do
     end
   end
 
+  defp terminal_history(payload) do
+    case Map.get(payload, :terminal_history) do
+      entries when is_list(entries) -> entries
+      _ -> []
+    end
+  end
+
+  defp terminal_history_label(entry) do
+    [terminal_session_file(entry) |> terminal_basename(), terminal_item_value(entry, :updated_at)]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" · ")
+  end
+
+  defp terminal_basename(path) when is_binary(path), do: Path.basename(path)
+  defp terminal_basename(_path), do: nil
+
   defp terminal_popout_id(entry) do
     suffix =
       [
         terminal_item_value(entry, :project_id),
         terminal_item_value(entry, :issue_identifier),
-        terminal_item_value(entry, :session_id)
+        terminal_item_value(entry, :session_id),
+        terminal_source_hash(entry)
       ]
       |> Enum.reject(&is_nil/1)
       |> Enum.join("-")
@@ -479,6 +558,13 @@ defmodule SymphonyElixirWeb.DashboardLive do
       |> String.trim("-")
 
     "terminal-popout-#{suffix}"
+  end
+
+  defp terminal_source_hash(entry) do
+    case terminal_session_file(entry) || terminal_source(entry) do
+      value when is_binary(value) and value != "" -> Integer.to_string(:erlang.phash2(value), 36)
+      _ -> nil
+    end
   end
 
   defp terminal_visible?(entry) do

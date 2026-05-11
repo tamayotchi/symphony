@@ -6,6 +6,8 @@ defmodule SymphonyElixirWeb.Presenter do
   alias SymphonyElixir.{Config, Projects, StatusDashboard}
   alias SymphonyElixir.Pi.SessionTranscript
 
+  @terminal_history_limit 12
+
   @spec state_payload(timeout()) :: map()
   def state_payload(snapshot_timeout_ms) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
@@ -20,6 +22,7 @@ defmodule SymphonyElixirWeb.Presenter do
           },
           running: Enum.map(snapshot.running, &running_entry_payload/1),
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
+          terminal_history: terminal_history_payload(snapshot.running),
           codex_totals: snapshot.codex_totals,
           rate_limits: snapshot.rate_limits
         }
@@ -225,6 +228,73 @@ defmodule SymphonyElixirWeb.Presenter do
       session_file when is_binary(session_file) and session_file != "" -> SessionTranscript.read(session_file)
       _ -> nil
     end
+  end
+
+  defp terminal_history_payload(running_entries) when is_list(running_entries) do
+    running_entries
+    |> Enum.flat_map(&terminal_history_entries/1)
+    |> Enum.uniq_by(& &1.session_file)
+    |> Enum.sort_by(& &1.updated_at_unix, :desc)
+    |> Enum.take(@terminal_history_limit)
+    |> Enum.map(&Map.delete(&1, :updated_at_unix))
+  end
+
+  defp terminal_history_payload(_running_entries), do: []
+
+  defp terminal_history_entries(running) when is_map(running) do
+    running
+    |> terminal_history_files()
+    |> Enum.map(&terminal_history_entry(running, &1))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp terminal_history_entries(_running), do: []
+
+  defp terminal_history_files(running) do
+    running
+    |> terminal_history_roots()
+    |> Enum.flat_map(fn root -> Path.wildcard(Path.join([root, "**", "*.jsonl"])) end)
+    |> Kernel.++([Map.get(running, :session_file)])
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+  end
+
+  defp terminal_history_roots(running) do
+    [Map.get(running, :session_dir), running |> Map.get(:workspace_path) |> terminal_workspace_session_root()]
+    |> Enum.filter(&(is_binary(&1) and File.dir?(&1)))
+  end
+
+  defp terminal_workspace_session_root(workspace_path) when is_binary(workspace_path) do
+    Path.join(workspace_path, Config.settings!().pi.session_dir_name)
+  end
+
+  defp terminal_workspace_session_root(_workspace_path), do: nil
+
+  defp terminal_history_entry(running, session_file) do
+    case File.stat(session_file, time: :posix) do
+      {:ok, %{type: :regular, mtime: updated_at_unix}} ->
+        transcript = SessionTranscript.read(session_file)
+
+        %{
+          issue_id: running.issue_id,
+          issue_identifier: running.identifier,
+          project_id: Map.get(running, :project_id),
+          state: running.state,
+          session_id: terminal_history_session_id(session_file),
+          session_file: session_file,
+          updated_at: DateTime.from_unix!(updated_at_unix) |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+          updated_at_unix: updated_at_unix,
+          terminal_transcript: transcript
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp terminal_history_session_id(session_file) do
+    session_file
+    |> Path.basename(".jsonl")
+    |> String.replace(~r/[^A-Za-z0-9_.-]+/, "-")
   end
 
   defp recent_events_payload(running) do

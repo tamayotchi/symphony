@@ -45,8 +45,10 @@ defmodule SymphonyElixirWeb.DashboardLiveTest do
       |> DashboardLive.render()
       |> rendered_to_string()
 
-    assert html =~ "Open terminal"
+    assert html =~ "Open live terminal"
     assert html =~ "window.open"
+    assert html =~ "data-live-refresh-ms=\"1000\""
+    assert html =~ "window.opener.document.getElementById"
     assert html =~ "terminal-popout-symphony-TAM-19-thread-1-turn-1"
     assert html =~ "Terminal transcript for TAM-19"
     assert html =~ "Pi RPC transcript"
@@ -85,7 +87,7 @@ defmodule SymphonyElixirWeb.DashboardLiveTest do
       |> DashboardLive.render()
       |> rendered_to_string()
 
-    refute html =~ "Open terminal"
+    refute html =~ "Open live terminal"
     refute html =~ "waiting for Pi RPC session"
   end
 
@@ -126,10 +128,61 @@ defmodule SymphonyElixirWeb.DashboardLiveTest do
       |> DashboardLive.render()
       |> rendered_to_string()
 
-    assert html =~ "Open terminal"
+    assert html =~ "Open live terminal"
     assert html =~ "Terminal transcript is unavailable right now"
     assert html =~ "Pi RPC session file may still be starting"
     refute html =~ "Terminal transcript unavailable:"
     refute html =~ missing_path
+  end
+
+  test "renders terminal history entries as reopenable live pop-outs" do
+    html =
+      %{
+        payload: %{
+          counts: %{running: 1, retrying: 0},
+          running: [
+            %{
+              project_id: "symphony",
+              issue_identifier: "TAM-19",
+              state: "In Progress",
+              session_id: "thread-1-turn-2",
+              turn_count: 2,
+              started_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+              last_event: :notification,
+              last_message: "agent message streaming",
+              last_event_at: nil,
+              tokens: %{input_tokens: 1, output_tokens: 2, total_tokens: 3}
+            }
+          ],
+          terminal_history: [
+            %{
+              project_id: "symphony",
+              issue_identifier: "TAM-19",
+              state: "In Progress",
+              session_id: "2026-05-11T03-18-06-916Z_019e150a",
+              session_file: "/tmp/.pi-rpc-sessions/2026-05-11T03-18-06-916Z_019e150a.jsonl",
+              updated_at: "2026-05-11T03:18:06Z",
+              terminal_transcript: %{
+                available: true,
+                source: "/tmp/.pi-rpc-sessions/2026-05-11T03-18-06-916Z_019e150a.jsonl",
+                truncated: false,
+                entries: [%{kind: "assistant", label: "assistant", text: "History is live", compact: false}]
+              }
+            }
+          ],
+          retrying: [],
+          codex_totals: %{input_tokens: 1, output_tokens: 2, total_tokens: 3, seconds_running: 0},
+          rate_limits: nil
+        },
+        now: DateTime.utc_now()
+      }
+      |> DashboardLive.render()
+      |> rendered_to_string()
+
+    assert html =~ "Terminal history"
+    assert html =~ "Recent Pi RPC terminal transcripts"
+    assert html =~ "Open live terminal"
+    assert html =~ "History is live"
+    assert html =~ "data-terminal-template=\"true\""
   end
 end

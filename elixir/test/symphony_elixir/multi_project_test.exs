@@ -106,6 +106,17 @@ defmodule SymphonyElixir.MultiProjectTest do
     write_workflow_file!(backend_workflow, workspace_root: Path.join(root, "backend-workspaces"), tracker_project_slug: "backend-project")
     write_workflow_file!(frontend_workflow, workspace_root: Path.join(root, "frontend-workspaces"), tracker_project_slug: "frontend-project")
 
+    backend_workspace = Path.join(root, "backend-workspaces/BE-1")
+    backend_session_dir = Path.join([backend_workspace, ".pi-rpc-sessions", "history"])
+    backend_session_file = Path.join(backend_session_dir, "session.jsonl")
+    backend_proof_dir = Path.join(backend_session_dir, "proof")
+    File.mkdir_p!(backend_session_dir)
+
+    File.write!(
+      backend_session_file,
+      Jason.encode!(%{"type" => "message", "message" => %{"role" => "assistant", "content" => [%{"type" => "text", "text" => "backend transcript"}]}}) <> "\n"
+    )
+
     backend_orchestrator = Module.concat(__MODULE__, :BackendOrchestrator)
     frontend_orchestrator = Module.concat(__MODULE__, :FrontendOrchestrator)
 
@@ -133,10 +144,11 @@ defmodule SymphonyElixir.MultiProjectTest do
                      codex_output_tokens: 5,
                      codex_total_tokens: 15,
                      started_at: DateTime.utc_now(),
-                     session_file: "/tmp/backend/.pi-rpc-sessions/session.jsonl",
-                     proof_dir: "/tmp/backend/.pi-rpc-sessions/proof",
-                     proof_events_path: "/tmp/backend/.pi-rpc-sessions/proof/events.jsonl",
-                     proof_summary_path: "/tmp/backend/.pi-rpc-sessions/proof/summary.json"
+                     workspace_path: backend_workspace,
+                     session_file: backend_session_file,
+                     proof_dir: backend_proof_dir,
+                     proof_events_path: Path.join(backend_proof_dir, "events.jsonl"),
+                     proof_summary_path: Path.join(backend_proof_dir, "summary.json")
                    }
                  ],
                  retrying: [],
@@ -213,18 +225,24 @@ defmodule SymphonyElixir.MultiProjectTest do
     assert Enum.any?(payload.retrying, &(&1.project_id == "frontend" and &1.issue_identifier == "FE-2"))
 
     running_entry = Enum.find(payload.running, &(&1.issue_identifier == "BE-1"))
-    assert running_entry.session_file == "/tmp/backend/.pi-rpc-sessions/session.jsonl"
-    assert running_entry.proof_dir == "/tmp/backend/.pi-rpc-sessions/proof"
-    assert running_entry.proof_events_path == "/tmp/backend/.pi-rpc-sessions/proof/events.jsonl"
-    assert running_entry.proof_summary_path == "/tmp/backend/.pi-rpc-sessions/proof/summary.json"
+    assert running_entry.session_file == backend_session_file
+    assert running_entry.proof_dir == backend_proof_dir
+    assert running_entry.proof_events_path == Path.join(backend_proof_dir, "events.jsonl")
+    assert running_entry.proof_summary_path == Path.join(backend_proof_dir, "summary.json")
+
+    assert [history_entry] = payload.terminal_history
+    assert history_entry.issue_identifier == "BE-1"
+    assert history_entry.session_file == backend_session_file
+    assert history_entry.terminal_transcript.available == true
+    assert [%{text: "backend transcript"}] = history_entry.terminal_transcript.entries
 
     assert {:ok, issue_payload} = Presenter.issue_payload("BE-1", 50)
     assert issue_payload.project_id == "backend"
     assert issue_payload.workspace.path == Path.join(Path.join(root, "backend-workspaces"), "BE-1")
-    assert issue_payload.running.session_file == "/tmp/backend/.pi-rpc-sessions/session.jsonl"
-    assert issue_payload.running.proof_dir == "/tmp/backend/.pi-rpc-sessions/proof"
-    assert issue_payload.running.proof_events_path == "/tmp/backend/.pi-rpc-sessions/proof/events.jsonl"
-    assert issue_payload.running.proof_summary_path == "/tmp/backend/.pi-rpc-sessions/proof/summary.json"
+    assert issue_payload.running.session_file == backend_session_file
+    assert issue_payload.running.proof_dir == backend_proof_dir
+    assert issue_payload.running.proof_events_path == Path.join(backend_proof_dir, "events.jsonl")
+    assert issue_payload.running.proof_summary_path == Path.join(backend_proof_dir, "summary.json")
 
     assert {:ok, refresh_payload} = Presenter.refresh_payload()
     assert refresh_payload.queued == true
