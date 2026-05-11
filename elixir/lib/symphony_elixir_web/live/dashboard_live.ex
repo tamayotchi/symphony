@@ -248,49 +248,51 @@ defmodule SymphonyElixirWeb.DashboardLive do
                       </div>
                     </td>
                   </tr>
-                  <tr class="terminal-row">
-                    <td colspan="7">
-                      <details class="terminal-disclosure">
-                        <summary class="terminal-summary">
-                          <span>
-                            Terminal view for <span class="issue-id"><%= entry.issue_identifier %></span>
-                          </span>
-                          <span class="terminal-summary-meta">
-                            <%= terminal_summary(entry) %>
-                          </span>
-                        </summary>
+                  <%= if terminal_visible?(entry) do %>
+                    <tr class="terminal-row">
+                      <td colspan="7">
+                        <details class="terminal-disclosure">
+                          <summary class="terminal-summary">
+                            <span>
+                              Terminal view for <span class="issue-id"><%= entry.issue_identifier %></span>
+                            </span>
+                            <span class="terminal-summary-meta">
+                              <%= terminal_summary(entry) %>
+                            </span>
+                          </summary>
 
-                        <div class="terminal-panel" role="region" aria-label={"Terminal transcript for #{entry.issue_identifier}"}>
-                          <%= if terminal_available?(entry) do %>
-                            <div class="terminal-meta">
-                              <span><%= terminal_source_label(entry) %></span>
-                              <%= if terminal_truncated?(entry) do %>
-                                <span>Showing first <%= length(terminal_entries(entry)) %> entries</span>
-                              <% end %>
-                            </div>
-
-                            <%= if terminal_entries(entry) == [] do %>
-                              <p class="terminal-empty">Transcript is available but no displayable chat, thinking, or tool events have been recorded yet.</p>
-                            <% else %>
-                              <div class="terminal-timeline">
-                                <article :for={item <- terminal_entries(entry)} class={terminal_entry_class(item)}>
-                                  <div class="terminal-entry-label mono">
-                                    <span><%= terminal_entry_label(item) %></span>
-                                    <%= if terminal_entry_compact?(item) do %>
-                                      <span class="terminal-pill">compact</span>
-                                    <% end %>
-                                  </div>
-                                  <pre class="terminal-entry-text"><%= terminal_entry_text(item) %></pre>
-                                </article>
+                          <div class="terminal-panel" role="region" aria-label={"Terminal transcript for #{entry.issue_identifier}"}>
+                            <%= if terminal_available?(entry) do %>
+                              <div class="terminal-meta">
+                                <span><%= terminal_source_label(entry) %></span>
+                                <%= if terminal_truncated?(entry) do %>
+                                  <span>Showing most recent <%= length(terminal_entries(entry)) %> entries</span>
+                                <% end %>
                               </div>
+
+                              <%= if terminal_entries(entry) == [] do %>
+                                <p class="terminal-empty">Transcript is available but no displayable chat, thinking, or tool events have been recorded yet.</p>
+                              <% else %>
+                                <div class="terminal-timeline">
+                                  <article :for={item <- terminal_entries(entry)} class={terminal_entry_class(item)}>
+                                    <div class="terminal-entry-label mono">
+                                      <span><%= terminal_entry_label(item) %></span>
+                                      <%= if terminal_entry_compact?(item) do %>
+                                        <span class="terminal-pill">compact</span>
+                                      <% end %>
+                                    </div>
+                                    <pre class="terminal-entry-text"><%= terminal_entry_text(item) %></pre>
+                                  </article>
+                                </div>
+                              <% end %>
+                            <% else %>
+                              <p class="terminal-empty"><%= terminal_unavailable_message(entry) %></p>
                             <% end %>
-                          <% else %>
-                            <p class="terminal-empty"><%= terminal_unavailable_message(entry) %></p>
-                          <% end %>
-                        </div>
-                      </details>
-                    </td>
-                  </tr>
+                          </div>
+                        </details>
+                      </td>
+                    </tr>
+                  <% end %>
                 </tbody>
               </table>
             </div>
@@ -418,6 +420,13 @@ defmodule SymphonyElixirWeb.DashboardLive do
     end
   end
 
+  defp terminal_visible?(entry) do
+    has_session_file? = match?(session when is_binary(session) and session != "", terminal_session_file(entry))
+    has_source? = match?(source when is_binary(source) and source != "", terminal_source(entry))
+
+    has_session_file? or has_source? or terminal_available?(entry)
+  end
+
   defp terminal_available?(entry) do
     terminal_transcript_value(entry, :available) == true
   end
@@ -441,6 +450,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
   end
 
   defp terminal_source(entry), do: terminal_transcript_value(entry, :source)
+
+  defp terminal_session_file(entry), do: terminal_item_value(entry, :session_file)
 
   defp terminal_unavailable_message(entry) do
     case terminal_source(entry) do

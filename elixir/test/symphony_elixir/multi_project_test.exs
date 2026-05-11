@@ -132,7 +132,11 @@ defmodule SymphonyElixir.MultiProjectTest do
                      codex_input_tokens: 10,
                      codex_output_tokens: 5,
                      codex_total_tokens: 15,
-                     started_at: DateTime.utc_now()
+                     started_at: DateTime.utc_now(),
+                     session_file: "/tmp/backend/.pi-rpc-sessions/session.jsonl",
+                     proof_dir: "/tmp/backend/.pi-rpc-sessions/proof",
+                     proof_events_path: "/tmp/backend/.pi-rpc-sessions/proof/events.jsonl",
+                     proof_summary_path: "/tmp/backend/.pi-rpc-sessions/proof/summary.json"
                    }
                  ],
                  retrying: [],
@@ -208,9 +212,19 @@ defmodule SymphonyElixir.MultiProjectTest do
     assert Enum.any?(payload.running, &(&1.project_id == "backend" and &1.issue_identifier == "BE-1"))
     assert Enum.any?(payload.retrying, &(&1.project_id == "frontend" and &1.issue_identifier == "FE-2"))
 
+    running_entry = Enum.find(payload.running, &(&1.issue_identifier == "BE-1"))
+    assert running_entry.session_file == "/tmp/backend/.pi-rpc-sessions/session.jsonl"
+    assert running_entry.proof_dir == "/tmp/backend/.pi-rpc-sessions/proof"
+    assert running_entry.proof_events_path == "/tmp/backend/.pi-rpc-sessions/proof/events.jsonl"
+    assert running_entry.proof_summary_path == "/tmp/backend/.pi-rpc-sessions/proof/summary.json"
+
     assert {:ok, issue_payload} = Presenter.issue_payload("BE-1", 50)
     assert issue_payload.project_id == "backend"
     assert issue_payload.workspace.path == Path.join(Path.join(root, "backend-workspaces"), "BE-1")
+    assert issue_payload.running.session_file == "/tmp/backend/.pi-rpc-sessions/session.jsonl"
+    assert issue_payload.running.proof_dir == "/tmp/backend/.pi-rpc-sessions/proof"
+    assert issue_payload.running.proof_events_path == "/tmp/backend/.pi-rpc-sessions/proof/events.jsonl"
+    assert issue_payload.running.proof_summary_path == "/tmp/backend/.pi-rpc-sessions/proof/summary.json"
 
     assert {:ok, refresh_payload} = Presenter.refresh_payload()
     assert refresh_payload.queued == true

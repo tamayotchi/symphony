@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Pi.SessionTranscript do
   """
 
   @max_entries 200
+  @max_entry_text_chars 4_000
 
   @type entry :: %{
           kind: String.t(),
@@ -15,19 +16,19 @@ defmodule SymphonyElixir.Pi.SessionTranscript do
   @spec read(String.t() | nil) :: map()
   def read(session_file) when is_binary(session_file) do
     if File.regular?(session_file) do
-      entries =
+      {count, entries} =
         session_file
         |> File.stream!([], :line)
         |> Stream.map(&String.trim/1)
         |> Stream.reject(&(&1 == ""))
         |> Stream.flat_map(&line_to_entries/1)
-        |> Enum.take(@max_entries)
+        |> retain_recent_entries()
 
       %{
         available: true,
         source: session_file,
         entries: entries,
-        truncated: length(entries) >= @max_entries
+        truncated: count > @max_entries
       }
     else
       unavailable(session_file)
@@ -38,19 +39,71 @@ defmodule SymphonyElixir.Pi.SessionTranscript do
 
   defp unavailable(source), do: %{available: false, source: source, entries: [], truncated: false}
 
+  defp retain_recent_entries(stream) do
+    {count, queue} =
+      Enum.reduce(stream, {0, :queue.new()}, fn entry, {count, queue} ->
+        queue = :queue.in(entry, queue)
+
+        queue =
+          if :queue.len(queue) > @max_entries do
+            {_dropped, queue} = :queue.out(queue)
+            queue
+          else
+            queue
+          end
+
+        {count + 1, queue}
+      end)
+
+    {count, :queue.to_list(queue)}
+  end
+
   defp line_to_entries(line) do
     case Jason.decode(line) do
       {:ok, %{} = payload} -> payload_to_entries(payload)
-      _ -> [%{kind: "system", label: "raw", text: line, compact: false}]
+      _ -> maybe_entry("system", "raw", line, false)
     end
   end
 
+  defp payload_to_entries(%{"type" => "turn_end"} = payload), do: turn_end_entries(payload)
   defp payload_to_entries(%{"messages" => messages}) when is_list(messages), do: Enum.flat_map(messages, &message_to_entries/1)
   defp payload_to_entries(%{"message" => message}) when is_map(message), do: message_to_entries(message)
-  defp payload_to_entries(%{"type" => "turn_end", "message" => message}) when is_map(message), do: message_to_entries(message)
   defp payload_to_entries(%{"method" => _} = payload), do: rpc_event_to_entries(payload)
   defp payload_to_entries(%{"type" => type} = payload) when is_binary(type), do: generic_type_entry(type, payload)
   defp payload_to_entries(payload), do: generic_payload_entry(payload)
+
+  defp turn_end_entries(payload) do
+    entries =
+      tool_results_to_entries(payload["toolResults"] || payload["tool_results"]) ++
+        maybe_message_entries(payload["message"])
+
+    if entries == [] do
+      generic_type_entry("turn_end", payload)
+    else
+      entries
+    end
+  end
+
+  defp maybe_message_entries(%{} = message), do: message_to_entries(message)
+  defp maybe_message_entries(_message), do: []
+
+  defp tool_results_to_entries(results) when is_list(results), do: Enum.flat_map(results, &tool_result_to_entries/1)
+  defp tool_results_to_entries(_results), do: []
+
+  defp tool_result_to_entries(%{} = result) do
+    maybe_entry("tool", tool_result_label(result), tool_result_text(result), true)
+  end
+
+  defp tool_result_to_entries(_result), do: []
+
+  defp tool_result_label(result) do
+    extract_first_text(result, [["toolName"], ["name"], ["tool"]]) || "tool result"
+  end
+
+  defp tool_result_text(result) do
+    extract_first_text(result, [["text"], ["output"], ["result"], ["content", "text"]]) ||
+      flatten_content(result["content"]) || compact_json(result)
+  end
 
   defp message_to_entries(%{"role" => role, "content" => content} = message) when is_list(content) do
     entries =
@@ -119,10 +172,10 @@ defmodule SymphonyElixir.Pi.SessionTranscript do
   defp rpc_event_to_entries(%{"method" => method} = payload) do
     cond do
       thinking_method?(method) ->
-        [%{kind: "thinking", label: terminal_label(method, "thinking"), text: event_text(payload), compact: true}]
+        maybe_entry("thinking", terminal_label(method, "thinking"), event_text(payload), true)
 
       tool_method?(method) ->
-        [%{kind: "tool", label: terminal_label(method, "tool"), text: event_text(payload), compact: true}]
+        maybe_entry("tool", terminal_label(method, "tool"), event_text(payload), true)
 
       user_method?(method) ->
         maybe_entry("user", terminal_label(method, "user"), event_text(payload), false)
@@ -144,10 +197,25 @@ defmodule SymphonyElixir.Pi.SessionTranscript do
   end
 
   defp maybe_entry(kind, label, text, compact) when is_binary(text) and text != "" do
-    [%{kind: kind, label: label, text: text, compact: compact}]
+    [
+      %{
+        kind: kind,
+        label: label,
+        text: clamp_text(text),
+        compact: compact
+      }
+    ]
   end
 
   defp maybe_entry(_kind, _label, _text, _compact), do: []
+
+  defp clamp_text(text) when is_binary(text) do
+    if String.length(text) > @max_entry_text_chars do
+      String.slice(text, 0, @max_entry_text_chars) <> "\n…[truncated]"
+    else
+      text
+    end
+  end
 
   defp normalize_role("toolResult"), do: "tool"
   defp normalize_role("tool"), do: "tool"
