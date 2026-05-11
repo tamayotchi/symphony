@@ -22,6 +22,7 @@ defmodule SymphonyElixirWeb.DashboardLiveTest do
               last_message: "agent message streaming",
               last_event_at: nil,
               tokens: %{input_tokens: 1, output_tokens: 2, total_tokens: 3},
+              session_file: "/tmp/pi-session.jsonl",
               terminal_transcript: %{
                 available: true,
                 source: "/tmp/pi-session.jsonl",
@@ -51,5 +52,37 @@ defmodule SymphonyElixirWeb.DashboardLiveTest do
     assert html =~ "Inspect task"
     assert html =~ "bash git status"
     assert html =~ "Terminal view is ready"
+  end
+
+  test "does not render a terminal disclosure for non-Pi sessions" do
+    html =
+      %{
+        payload: %{
+          counts: %{running: 1, retrying: 0},
+          running: [
+            %{
+              project_id: "symphony",
+              issue_identifier: "TAM-20",
+              state: "In Progress",
+              session_id: "thread-1-turn-1",
+              turn_count: 1,
+              started_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+              last_event: :notification,
+              last_message: "agent message streaming",
+              last_event_at: nil,
+              tokens: %{input_tokens: 1, output_tokens: 2, total_tokens: 3}
+            }
+          ],
+          retrying: [],
+          codex_totals: %{input_tokens: 1, output_tokens: 2, total_tokens: 3, seconds_running: 0},
+          rate_limits: nil
+        },
+        now: DateTime.utc_now()
+      }
+      |> DashboardLive.render()
+      |> rendered_to_string()
+
+    refute html =~ "Terminal view for"
+    refute html =~ "waiting for Pi RPC session"
   end
 end

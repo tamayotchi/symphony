@@ -131,6 +131,9 @@ defmodule SymphonyElixirWeb.Presenter do
     }
     |> maybe_put(:project_id, Map.get(entry, :project_id))
     |> maybe_put(:session_file, Map.get(entry, :session_file))
+    |> maybe_put(:proof_dir, Map.get(entry, :proof_dir))
+    |> maybe_put(:proof_events_path, Map.get(entry, :proof_events_path))
+    |> maybe_put(:proof_summary_path, Map.get(entry, :proof_summary_path))
     |> maybe_put(:terminal_transcript, session_transcript_payload(entry))
   end
 
@@ -166,6 +169,9 @@ defmodule SymphonyElixirWeb.Presenter do
     }
     |> maybe_put(:project_id, Map.get(running, :project_id))
     |> maybe_put(:session_file, Map.get(running, :session_file))
+    |> maybe_put(:proof_dir, Map.get(running, :proof_dir))
+    |> maybe_put(:proof_events_path, Map.get(running, :proof_events_path))
+    |> maybe_put(:proof_summary_path, Map.get(running, :proof_summary_path))
   end
 
   defp retry_issue_payload(retry) do

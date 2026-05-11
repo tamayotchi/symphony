@@ -65,6 +65,39 @@ defmodule SymphonyElixir.Pi.SessionTranscriptTest do
     assert assistant.text == "Rendered terminal panel"
   end
 
+  test "keeps turn_end tool results and retains the most recent capped entries" do
+    session_file =
+      write_session_file!(
+        Enum.map(1..205, fn index ->
+          %{
+            "type" => "turn_end",
+            "toolResults" => [%{"toolName" => "bash", "output" => "result-#{index}"}],
+            "message" => %{"role" => "assistant", "content" => [%{"type" => "text", "text" => "assistant-#{index}"}]}
+          }
+        end)
+      )
+
+    assert %{truncated: true, entries: entries} = SessionTranscript.read(session_file)
+    assert length(entries) == 200
+
+    [first | _] = entries
+    last = List.last(entries)
+
+    assert first == %{kind: "tool", label: "bash", text: "result-106", compact: true}
+    assert last == %{kind: "assistant", label: "assistant", text: "assistant-205", compact: false}
+  end
+
+  test "caps oversized entry text" do
+    session_file =
+      write_session_file!([
+        %{"type" => "message", "message" => %{"role" => "assistant", "content" => [%{"type" => "text", "text" => String.duplicate("a", 4_100)}]}}
+      ])
+
+    assert %{entries: [%{text: text}]} = SessionTranscript.read(session_file)
+    assert String.length(text) < 4_120
+    assert String.ends_with?(text, "\n…[truncated]")
+  end
+
   test "reports unavailable transcript when the session file is missing" do
     missing = Path.join(System.tmp_dir!(), "missing-pi-session-#{System.unique_integer([:positive])}.jsonl")
 
