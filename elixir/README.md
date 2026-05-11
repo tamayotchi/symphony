@@ -21,6 +21,8 @@ This directory contains the current Elixir/OTP implementation of Symphony, based
 4. Sends a workflow prompt to the worker
 5. Keeps the worker working on the issue until the work is done
 
+If you want to understand the exact prompt lifecycle for Pi workers, see [docs/pi-conversation-flow.md](docs/pi-conversation-flow.md).
+
 During Codex app-server sessions, Symphony serves a client-side `linear_graphql` tool so that repo
 skills can make raw Linear GraphQL calls. During Pi sessions, the equivalent capability is restored
 through the repo-level `extensions/linear-graphql` worker extension.
