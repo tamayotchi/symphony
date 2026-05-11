@@ -202,6 +202,18 @@ defmodule SymphonyElixirWeb.DashboardLive do
                       <div class="issue-stack">
                         <span class="issue-id"><%= entry.issue_identifier %></span>
                         <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                        <%= if terminal_visible?(entry) do %>
+                          <button
+                            type="button"
+                            class="terminal-popout-button"
+                            data-popout-target={terminal_popout_id(entry)}
+                            data-popout-title={terminal_popout_title(entry)}
+                            onclick="const template = document.getElementById(this.dataset.popoutTarget); const popup = window.open('', this.dataset.popoutTarget, 'popup=yes,width=980,height=720,resizable=yes,scrollbars=yes'); if (popup && template) { popup.document.open(); popup.document.write(template.innerHTML); popup.document.close(); popup.focus(); }"
+                          >
+                            Open terminal
+                          </button>
+                          <.terminal_popout_template entry={entry} id={terminal_popout_id(entry)} />
+                        <% end %>
                       </div>
                     </td>
                     <td>
@@ -248,51 +260,6 @@ defmodule SymphonyElixirWeb.DashboardLive do
                       </div>
                     </td>
                   </tr>
-                  <%= if terminal_visible?(entry) do %>
-                    <tr class="terminal-row">
-                      <td colspan="7">
-                        <details class="terminal-disclosure">
-                          <summary class="terminal-summary">
-                            <span>
-                              Terminal view for <span class="issue-id"><%= entry.issue_identifier %></span>
-                            </span>
-                            <span class="terminal-summary-meta">
-                              <%= terminal_summary(entry) %>
-                            </span>
-                          </summary>
-
-                          <div class="terminal-panel" role="region" aria-label={"Terminal transcript for #{entry.issue_identifier}"}>
-                            <%= if terminal_available?(entry) do %>
-                              <div class="terminal-meta">
-                                <span><%= terminal_source_label(entry) %></span>
-                                <%= if terminal_truncated?(entry) do %>
-                                  <span>Showing most recent <%= length(terminal_entries(entry)) %> entries</span>
-                                <% end %>
-                              </div>
-
-                              <%= if terminal_entries(entry) == [] do %>
-                                <p class="terminal-empty">Transcript is available but no displayable chat, thinking, or tool events have been recorded yet.</p>
-                              <% else %>
-                                <div class="terminal-timeline">
-                                  <article :for={item <- terminal_entries(entry)} class={terminal_entry_class(item)}>
-                                    <div class="terminal-entry-label mono">
-                                      <span><%= terminal_entry_label(item) %></span>
-                                      <%= if terminal_entry_compact?(item) do %>
-                                        <span class="terminal-pill">compact</span>
-                                      <% end %>
-                                    </div>
-                                    <pre class="terminal-entry-text"><%= terminal_entry_text(item) %></pre>
-                                  </article>
-                                </div>
-                              <% end %>
-                            <% else %>
-                              <p class="terminal-empty"><%= terminal_unavailable_message(entry) %></p>
-                            <% end %>
-                          </div>
-                        </details>
-                      </td>
-                    </tr>
-                  <% end %>
                 </tbody>
               </table>
             </div>
@@ -412,12 +379,106 @@ defmodule SymphonyElixirWeb.DashboardLive do
     end
   end
 
-  defp terminal_summary(entry) do
+  defp terminal_popout_template(assigns) do
+    ~H"""
+    <template id={@id}>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title><%= terminal_popout_title(@entry) %></title>
+          <style>
+            :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #020617; color: #e2e8f0; }
+            body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top left, rgba(124, 58, 237, 0.24), transparent 34rem), #020617; }
+            main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
+            header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+            h1 { margin: 0; font-size: clamp(1.35rem, 2.5vw, 2rem); letter-spacing: -0.04em; }
+            .muted, .terminal-meta, .terminal-pill { color: #94a3b8; }
+            .mono, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+            .terminal-panel { border: 1px solid rgba(148, 163, 184, 0.24); border-radius: 18px; background: rgba(15, 23, 42, 0.86); box-shadow: 0 20px 70px rgba(0, 0, 0, 0.3); padding: 0.95rem; }
+            .terminal-meta { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.8rem; font-size: 0.85rem; font-weight: 700; }
+            .terminal-timeline { display: grid; gap: 0.72rem; }
+            .terminal-entry { display: grid; grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr); gap: 0.75rem; padding: 0.78rem; border: 1px solid rgba(148, 163, 184, 0.18); border-left-width: 4px; border-radius: 14px; background: rgba(2, 6, 23, 0.68); }
+            .terminal-entry-user { border-left-color: #38bdf8; }
+            .terminal-entry-assistant { border-left-color: #22c55e; }
+            .terminal-entry-thinking { border-left-color: #a78bfa; }
+            .terminal-entry-tool { border-left-color: #f59e0b; }
+            .terminal-entry-system { border-left-color: #94a3b8; }
+            .terminal-entry-label { display: flex; flex-wrap: wrap; align-content: start; gap: 0.35rem; color: #cbd5e1; font-size: 0.76rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+            .terminal-pill { display: inline-flex; align-items: center; height: 1.3rem; padding: 0 0.45rem; border: 1px solid rgba(148, 163, 184, 0.28); border-radius: 999px; text-transform: none; letter-spacing: 0; }
+            .terminal-entry-text { margin: 0; color: #e2e8f0; font-size: 0.86rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+            .terminal-empty { margin: 0; color: #cbd5e1; }
+            @media (max-width: 720px) { main { padding: 0.8rem; } .terminal-entry { grid-template-columns: 1fr; } }
+          </style>
+        </head>
+        <body>
+          <main>
+            <header>
+              <div>
+                <p class="muted mono">Running session</p>
+                <h1>Terminal transcript for <%= @entry.issue_identifier %></h1>
+              </div>
+              <div class="muted mono"><%= terminal_popout_summary(@entry) %></div>
+            </header>
+
+            <section class="terminal-panel" role="region" aria-label={"Terminal transcript for #{@entry.issue_identifier}"}>
+              <%= if terminal_available?(@entry) do %>
+                <div class="terminal-meta">
+                  <span><%= terminal_source_label(@entry) %></span>
+                  <%= if terminal_truncated?(@entry) do %>
+                    <span>Showing most recent <%= length(terminal_entries(@entry)) %> entries</span>
+                  <% end %>
+                </div>
+
+                <%= if terminal_entries(@entry) == [] do %>
+                  <p class="terminal-empty">Transcript is available but no displayable chat, thinking, or tool events have been recorded yet.</p>
+                <% else %>
+                  <div class="terminal-timeline">
+                    <article :for={item <- terminal_entries(@entry)} class={terminal_entry_class(item)}>
+                      <div class="terminal-entry-label mono">
+                        <span><%= terminal_entry_label(item) %></span>
+                        <%= if terminal_entry_compact?(item) do %>
+                          <span class="terminal-pill">compact</span>
+                        <% end %>
+                      </div>
+                      <pre class="terminal-entry-text"><%= terminal_entry_text(item) %></pre>
+                    </article>
+                  </div>
+                <% end %>
+              <% else %>
+                <p class="terminal-empty"><%= terminal_unavailable_message(@entry) %></p>
+              <% end %>
+            </section>
+          </main>
+        </body>
+      </html>
+    </template>
+    """
+  end
+
+  defp terminal_popout_title(entry), do: "Symphony terminal · #{terminal_item_value(entry, :issue_identifier) || "session"}"
+
+  defp terminal_popout_summary(entry) do
     cond do
       terminal_available?(entry) -> "#{length(terminal_entries(entry))} entries"
-      terminal_source(entry) -> "session file unavailable"
-      true -> "waiting for Pi RPC session"
+      terminal_source(entry) -> "Transcript not available yet"
+      true -> "Waiting for Pi RPC session"
     end
+  end
+
+  defp terminal_popout_id(entry) do
+    suffix =
+      [
+        terminal_item_value(entry, :project_id),
+        terminal_item_value(entry, :issue_identifier),
+        terminal_item_value(entry, :session_id)
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("-")
+      |> String.replace(~r/[^A-Za-z0-9_-]+/, "-")
+      |> String.trim("-")
+
+    "terminal-popout-#{suffix}"
   end
 
   defp terminal_visible?(entry) do
@@ -456,7 +517,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
   defp terminal_unavailable_message(entry) do
     case terminal_source(entry) do
       nil -> "Terminal transcript will appear after the Pi RPC session file is available for this running task."
-      source -> "Terminal transcript unavailable: #{source}"
+      _source -> "Terminal transcript is unavailable right now. The Pi RPC session file may still be starting, may have moved, or may have been cleaned up."
     end
   end
 

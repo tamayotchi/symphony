@@ -393,6 +393,25 @@ pre,
   font-size: 0.86rem;
 }
 
+.terminal-popout-button {
+  appearance: none;
+  width: max-content;
+  border: 1px solid rgba(19, 163, 127, 0.26);
+  border-radius: 999px;
+  background: rgba(19, 163, 127, 0.1);
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.28rem 0.62rem;
+}
+
+.terminal-popout-button:hover {
+  border-color: rgba(19, 163, 127, 0.45);
+  background: rgba(19, 163, 127, 0.16);
+}
+
 .muted {
   color: var(--muted);
 }
