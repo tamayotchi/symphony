@@ -6,4 +6,6 @@ server:
 projects:
   - id: symphony
     workflow: ./WORKFLOW.md
+  - id: robert 
+    workflow: ./ROBERT.md
 ---
