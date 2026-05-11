@@ -4,6 +4,7 @@ defmodule SymphonyElixirWeb.Presenter do
   """
 
   alias SymphonyElixir.{Config, Projects, StatusDashboard}
+  alias SymphonyElixir.Pi.SessionTranscript
 
   @spec state_payload(timeout()) :: map()
   def state_payload(snapshot_timeout_ms) do
@@ -72,9 +73,9 @@ defmodule SymphonyElixirWeb.Presenter do
       },
       running: running && running_issue_payload(running),
       retry: retry && retry_issue_payload(retry),
-      logs: %{
-        codex_session_logs: []
-      },
+      logs:
+        %{codex_session_logs: []}
+        |> maybe_put(:terminal_transcript, running && session_transcript_payload(running)),
       recent_events: (running && recent_events_payload(running)) || [],
       last_error: retry && retry.error,
       tracked: %{}
@@ -129,6 +130,8 @@ defmodule SymphonyElixirWeb.Presenter do
       }
     }
     |> maybe_put(:project_id, Map.get(entry, :project_id))
+    |> maybe_put(:session_file, Map.get(entry, :session_file))
+    |> maybe_put(:terminal_transcript, session_transcript_payload(entry))
   end
 
   defp retry_entry_payload(entry) do
@@ -162,6 +165,7 @@ defmodule SymphonyElixirWeb.Presenter do
       }
     }
     |> maybe_put(:project_id, Map.get(running, :project_id))
+    |> maybe_put(:session_file, Map.get(running, :session_file))
   end
 
   defp retry_issue_payload(retry) do
@@ -208,6 +212,13 @@ defmodule SymphonyElixirWeb.Presenter do
 
   defp workspace_host(running, retry) do
     (running && Map.get(running, :worker_host)) || (retry && Map.get(retry, :worker_host))
+  end
+
+  defp session_transcript_payload(running) do
+    case Map.get(running, :session_file) do
+      session_file when is_binary(session_file) and session_file != "" -> SessionTranscript.read(session_file)
+      _ -> nil
+    end
   end
 
   defp recent_events_payload(running) do

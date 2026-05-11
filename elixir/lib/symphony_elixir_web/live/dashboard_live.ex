@@ -193,8 +193,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
                     <th>Tokens</th>
                   </tr>
                 </thead>
-                <tbody>
-                  <tr :for={entry <- @payload.running}>
+                <tbody :for={entry <- @payload.running}>
+                  <tr>
                     <td>
                       <span class="issue-id"><%= entry.project_id %></span>
                     </td>
@@ -246,6 +246,49 @@ defmodule SymphonyElixirWeb.DashboardLive do
                         <span>Total: <%= format_int(entry.tokens.total_tokens) %></span>
                         <span class="muted">In <%= format_int(entry.tokens.input_tokens) %> / Out <%= format_int(entry.tokens.output_tokens) %></span>
                       </div>
+                    </td>
+                  </tr>
+                  <tr class="terminal-row">
+                    <td colspan="7">
+                      <details class="terminal-disclosure">
+                        <summary class="terminal-summary">
+                          <span>
+                            Terminal view for <span class="issue-id"><%= entry.issue_identifier %></span>
+                          </span>
+                          <span class="terminal-summary-meta">
+                            <%= terminal_summary(entry) %>
+                          </span>
+                        </summary>
+
+                        <div class="terminal-panel" role="region" aria-label={"Terminal transcript for #{entry.issue_identifier}"}>
+                          <%= if terminal_available?(entry) do %>
+                            <div class="terminal-meta">
+                              <span><%= terminal_source_label(entry) %></span>
+                              <%= if terminal_truncated?(entry) do %>
+                                <span>Showing first <%= length(terminal_entries(entry)) %> entries</span>
+                              <% end %>
+                            </div>
+
+                            <%= if terminal_entries(entry) == [] do %>
+                              <p class="terminal-empty">Transcript is available but no displayable chat, thinking, or tool events have been recorded yet.</p>
+                            <% else %>
+                              <div class="terminal-timeline">
+                                <article :for={item <- terminal_entries(entry)} class={terminal_entry_class(item)}>
+                                  <div class="terminal-entry-label mono">
+                                    <span><%= terminal_entry_label(item) %></span>
+                                    <%= if terminal_entry_compact?(item) do %>
+                                      <span class="terminal-pill">compact</span>
+                                    <% end %>
+                                  </div>
+                                  <pre class="terminal-entry-text"><%= terminal_entry_text(item) %></pre>
+                                </article>
+                              </div>
+                            <% end %>
+                          <% else %>
+                            <p class="terminal-empty"><%= terminal_unavailable_message(entry) %></p>
+                          <% end %>
+                        </div>
+                      </details>
                     </td>
                   </tr>
                 </tbody>
@@ -366,6 +409,96 @@ defmodule SymphonyElixirWeb.DashboardLive do
       true -> base
     end
   end
+
+  defp terminal_summary(entry) do
+    cond do
+      terminal_available?(entry) -> "#{length(terminal_entries(entry))} entries"
+      terminal_source(entry) -> "session file unavailable"
+      true -> "waiting for Pi RPC session"
+    end
+  end
+
+  defp terminal_available?(entry) do
+    terminal_transcript_value(entry, :available) == true
+  end
+
+  defp terminal_entries(entry) do
+    case terminal_transcript_value(entry, :entries) do
+      entries when is_list(entries) -> entries
+      _ -> []
+    end
+  end
+
+  defp terminal_truncated?(entry) do
+    terminal_transcript_value(entry, :truncated) == true
+  end
+
+  defp terminal_source_label(entry) do
+    case terminal_source(entry) do
+      nil -> "Pi RPC transcript"
+      source -> "Pi RPC transcript · #{Path.basename(source)}"
+    end
+  end
+
+  defp terminal_source(entry), do: terminal_transcript_value(entry, :source)
+
+  defp terminal_unavailable_message(entry) do
+    case terminal_source(entry) do
+      nil -> "Terminal transcript will appear after the Pi RPC session file is available for this running task."
+      source -> "Terminal transcript unavailable: #{source}"
+    end
+  end
+
+  defp terminal_entry_class(item) do
+    kind = terminal_entry_kind(item)
+    "terminal-entry terminal-entry-#{kind}"
+  end
+
+  defp terminal_entry_kind(item) do
+    item
+    |> terminal_item_value(:kind)
+    |> to_string()
+    |> String.downcase()
+    |> case do
+      kind when kind in ["user", "assistant", "thinking", "tool", "system"] -> kind
+      _ -> "system"
+    end
+  end
+
+  defp terminal_entry_label(item) do
+    item
+    |> terminal_item_value(:label)
+    |> case do
+      value when value in [nil, ""] -> terminal_entry_kind(item)
+      value -> value
+    end
+  end
+
+  defp terminal_entry_text(item) do
+    item
+    |> terminal_item_value(:text)
+    |> case do
+      value when is_binary(value) -> value
+      value -> inspect(value, pretty: true, limit: :infinity)
+    end
+  end
+
+  defp terminal_entry_compact?(item) do
+    terminal_item_value(item, :compact) == true
+  end
+
+  defp terminal_transcript_value(entry, key) do
+    case terminal_item_value(entry, :terminal_transcript) do
+      nil -> nil
+      transcript -> terminal_item_value(transcript, key)
+    end
+  end
+
+  defp terminal_item_value(%{} = map, key) when is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp terminal_item_value(_map, _key), do: nil
 
   defp schedule_runtime_tick do
     Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
