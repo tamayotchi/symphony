@@ -182,6 +182,11 @@ defmodule SymphonyElixir.Orchestrator do
           running_entry
           |> maybe_put_runtime_value(:worker_host, runtime_info[:worker_host])
           |> maybe_put_runtime_value(:workspace_path, runtime_info[:workspace_path])
+          |> maybe_put_runtime_value(:session_file, runtime_info[:session_file])
+          |> maybe_put_runtime_value(:session_dir, runtime_info[:session_dir])
+          |> maybe_put_runtime_value(:proof_dir, runtime_info[:proof_dir])
+          |> maybe_put_runtime_value(:proof_events_path, runtime_info[:proof_events_path])
+          |> maybe_put_runtime_value(:proof_summary_path, runtime_info[:proof_summary_path])
 
         notify_dashboard()
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
@@ -1129,6 +1134,11 @@ defmodule SymphonyElixir.Orchestrator do
           state: metadata.issue.state,
           worker_host: Map.get(metadata, :worker_host),
           workspace_path: Map.get(metadata, :workspace_path),
+          session_file: Map.get(metadata, :session_file),
+          session_dir: Map.get(metadata, :session_dir),
+          proof_dir: Map.get(metadata, :proof_dir),
+          proof_events_path: Map.get(metadata, :proof_events_path),
+          proof_summary_path: Map.get(metadata, :proof_summary_path),
           session_id: metadata.session_id,
           codex_app_server_pid: metadata.codex_app_server_pid,
           codex_input_tokens: metadata.codex_input_tokens,

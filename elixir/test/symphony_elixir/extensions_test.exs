@@ -374,6 +374,7 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "project_id" => "symphony"
                }
              ],
+             "terminal_history" => [],
              "codex_totals" => %{
                "input_tokens" => 4,
                "output_tokens" => 8,
@@ -476,6 +477,7 @@ defmodule SymphonyElixir.ExtensionsTest do
              "counts" => %{"running" => 0, "retrying" => 0},
              "running" => [],
              "retrying" => [],
+             "terminal_history" => [],
              "codex_totals" => %{
                "input_tokens" => 0,
                "output_tokens" => 0,
@@ -524,6 +526,7 @@ defmodule SymphonyElixir.ExtensionsTest do
              "counts" => %{"running" => 0, "retrying" => 0},
              "running" => [],
              "retrying" => [],
+             "terminal_history" => [],
              "codex_totals" => %{
                "input_tokens" => 0,
                "output_tokens" => 0,

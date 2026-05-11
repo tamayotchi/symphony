@@ -21,6 +21,69 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     send(pid, :stop)
   end
 
+  test "orchestrator snapshot includes Pi runtime artifact paths" do
+    issue_id = "issue-runtime-info"
+
+    issue = %Issue{
+      id: issue_id,
+      identifier: "MT-199",
+      title: "Runtime info test",
+      state: "In Progress"
+    }
+
+    orchestrator_name = Module.concat(__MODULE__, :RuntimeInfoOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: issue.identifier,
+      issue: issue,
+      session_id: nil,
+      turn_count: 0,
+      codex_app_server_pid: nil,
+      last_codex_message: nil,
+      last_codex_timestamp: nil,
+      last_codex_event: nil,
+      codex_input_tokens: 0,
+      codex_output_tokens: 0,
+      codex_total_tokens: 0,
+      codex_last_reported_input_tokens: 0,
+      codex_last_reported_output_tokens: 0,
+      codex_last_reported_total_tokens: 0,
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.put(initial_state.claimed, issue_id))
+    end)
+
+    runtime_info = %{
+      worker_host: "worker-1",
+      workspace_path: "/tmp/workspace",
+      session_file: "/tmp/workspace/.pi-rpc-sessions/session.jsonl",
+      session_dir: "/tmp/workspace/.pi-rpc-sessions",
+      proof_dir: "/tmp/workspace/.pi-rpc-sessions/proof",
+      proof_events_path: "/tmp/workspace/.pi-rpc-sessions/proof/events.jsonl",
+      proof_summary_path: "/tmp/workspace/.pi-rpc-sessions/proof/summary.json"
+    }
+
+    send(pid, {:worker_runtime_info, issue_id, runtime_info})
+
+    assert %{running: [snapshot_entry]} = GenServer.call(pid, :snapshot)
+    assert Map.take(snapshot_entry, Map.keys(runtime_info)) == runtime_info
+  end
+
   test "orchestrator snapshot reflects last codex update and session id" do
     issue_id = "issue-snapshot"
 
