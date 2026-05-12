@@ -111,6 +111,12 @@ Optional flags:
 - `--logs-root` tells Symphony to write logs under a different directory (default: `./log`)
 - `--port` also starts the Phoenix observability service (default: disabled)
 
+When the Phoenix observability service is enabled, `/` shows the operations dashboard plus a
+read-only Linear kanban board. The board uses the same tracker configuration and `LINEAR_API_KEY`
+environment-backed workflow settings as the orchestrator, groups issues into Backlog, Todo, In
+Progress, Human Review, and Done, and refreshes automatically in the browser without requiring API
+secrets in source control.
+
 `SYMPHONY.md` is the startup/control-plane manifest. Each project `WORKFLOW.md` uses YAML front
 matter for project-specific configuration plus a Markdown body used as that worker's session
 prompt.

@@ -103,8 +103,17 @@ defmodule SymphonyElixir.MultiProjectTest do
     File.mkdir_p!(Path.dirname(backend_workflow))
     File.mkdir_p!(Path.dirname(frontend_workflow))
 
-    write_workflow_file!(backend_workflow, workspace_root: Path.join(root, "backend-workspaces"), tracker_project_slug: "backend-project")
-    write_workflow_file!(frontend_workflow, workspace_root: Path.join(root, "frontend-workspaces"), tracker_project_slug: "frontend-project")
+    write_workflow_file!(backend_workflow,
+      workspace_root: Path.join(root, "backend-workspaces"),
+      tracker_kind: "memory",
+      tracker_project_slug: "backend-project"
+    )
+
+    write_workflow_file!(frontend_workflow,
+      workspace_root: Path.join(root, "frontend-workspaces"),
+      tracker_kind: "memory",
+      tracker_project_slug: "frontend-project"
+    )
 
     backend_orchestrator = Module.concat(__MODULE__, :BackendOrchestrator)
     frontend_orchestrator = Module.concat(__MODULE__, :FrontendOrchestrator)
@@ -232,6 +241,100 @@ defmodule SymphonyElixir.MultiProjectTest do
     assert html =~ "frontend"
     assert html =~ "BE-1"
     assert html =~ "FE-2"
+  end
+
+  test "kanban payload groups tracker issues by Linear workflow state and dashboard refreshes automatically" do
+    root = Path.join(System.tmp_dir!(), "symphony-kanban-view-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+
+    workflow_path = Path.join(root, "WORKFLOW.md")
+    write_workflow_file!(workflow_path, tracker_kind: "memory", workspace_root: Path.join(root, "workspaces"))
+
+    now = DateTime.utc_now()
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issues, [
+      kanban_issue("TAM-1", "Backlog card", "Backlog", now, priority: 1, labels: ["scope"]),
+      kanban_issue("TAM-2", "Todo card", "Todo", now, priority: 2),
+      kanban_issue("TAM-3", "Progress card", "In Progress", now, priority: 3),
+      kanban_issue("TAM-4", "Review card", "Human Review", now, priority: 4, labels: ["qa"]),
+      kanban_issue("TAM-5", "Done card", "Done", now)
+    ])
+
+    assert :ok =
+             BootConfig.put(%{
+               manifest_path: Path.join(root, "SYMPHONY.md"),
+               server: %Schema.Server{host: "127.0.0.1", port: 4040},
+               observability: %Schema.Observability{dashboard_enabled: true},
+               projects: [
+                 %{
+                   id: "tam",
+                   workflow_path: workflow_path,
+                   workspace_root: Path.join(root, "workspaces"),
+                   project_slug: "tam-project",
+                   max_concurrent_agents: 10,
+                   orchestrator: Module.concat(__MODULE__, :KanbanOrchestrator)
+                 }
+               ]
+             })
+
+    payload = Presenter.kanban_payload(50)
+
+    assert payload.status == "ok"
+    assert payload.states == ["Backlog", "Todo", "In Progress", "Human Review", "Done"]
+    assert Enum.map(payload.columns, & &1.state) == payload.states
+    assert Enum.map(payload.columns, & &1.count) == [1, 1, 1, 1, 1]
+
+    assert %{"Backlog" => ["TAM-1"], "Human Review" => ["TAM-4"], "Done" => ["TAM-5"]} =
+             payload.columns
+             |> Map.new(fn column -> {column.state, Enum.map(column.issues, & &1.issue_identifier)} end)
+             |> Map.take(["Backlog", "Human Review", "Done"])
+
+    kanban_orchestrator = Module.concat(__MODULE__, :KanbanOrchestrator)
+
+    {:ok, _pid} =
+      start_supervised(%{
+        id: kanban_orchestrator,
+        start:
+          {StaticOrchestrator, :start_link,
+           [
+             [
+               name: kanban_orchestrator,
+               snapshot: %{
+                 running: [],
+                 retrying: [],
+                 codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+                 rate_limits: nil,
+                 polling: nil
+               }
+             ]
+           ]}
+      })
+
+    start_test_endpoint(orchestrator: nil, snapshot_timeout_ms: 50)
+
+    {:ok, view, html} = live(build_conn(), "/")
+    assert html =~ "Linear Kanban Board"
+
+    for state <- ["Backlog", "Todo", "In Progress", "Human Review", "Done"] do
+      assert html =~ state
+    end
+
+    assert html =~ ~r/data-state="Backlog"[\s\S]*data-issue-id="TAM-1"[\s\S]*data-state="Todo"/
+    assert html =~ ~r/data-state="Human Review"[\s\S]*data-issue-id="TAM-4"[\s\S]*data-state="Done"/
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issues, [
+      kanban_issue("TAM-1", "Backlog card", "Done", now, priority: 1, labels: ["scope"]),
+      kanban_issue("TAM-2", "Todo card", "Todo", now, priority: 2),
+      kanban_issue("TAM-3", "Progress card", "In Progress", now, priority: 3),
+      kanban_issue("TAM-4", "Review card", "Human Review", now, priority: 4, labels: ["qa"]),
+      kanban_issue("TAM-5", "Done card", "Done", now)
+    ])
+
+    send(view.pid, :kanban_refresh)
+    refreshed_html = render(view)
+
+    refute refreshed_html =~ ~r/data-state="Backlog"[\s\S]*data-issue-id="TAM-1"[\s\S]*data-state="Todo"/
+    assert refreshed_html =~ ~r/data-state="Done"[\s\S]*data-issue-id="TAM-1"/
   end
 
   test "runtime context uses the per-project workflow store cache" do
@@ -514,6 +617,19 @@ defmodule SymphonyElixir.MultiProjectTest do
 
     assert {:error, :unavailable} = Projects.request_refresh()
     assert {:error, :unavailable} = Presenter.refresh_payload()
+  end
+
+  defp kanban_issue(identifier, title, state, updated_at, opts \\ []) do
+    %Issue{
+      id: "issue-#{String.downcase(identifier)}",
+      identifier: identifier,
+      title: title,
+      state: state,
+      priority: Keyword.get(opts, :priority),
+      url: "https://linear.app/tam/issue/#{identifier}",
+      labels: Keyword.get(opts, :labels, []),
+      updated_at: updated_at
+    }
   end
 
   defp start_test_endpoint(overrides) do
