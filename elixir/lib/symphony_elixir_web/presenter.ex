@@ -3,7 +3,9 @@ defmodule SymphonyElixirWeb.Presenter do
   Shared projections for the observability API and dashboard.
   """
 
-  alias SymphonyElixir.{Config, Projects, StatusDashboard}
+  alias SymphonyElixir.{Config, Projects, RuntimeContext, StatusDashboard, Tracker}
+
+  @kanban_states ["Backlog", "Todo", "In Progress", "Human Review", "Done"]
 
   @spec state_payload(timeout()) :: map()
   def state_payload(snapshot_timeout_ms) do
@@ -43,6 +45,27 @@ defmodule SymphonyElixirWeb.Presenter do
          issue_data.retry,
          issue_data.project
        )}
+    end
+  end
+
+  @spec kanban_payload(timeout()) :: map()
+  def kanban_payload(timeout \\ 15_000) do
+    generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    case Projects.projects() do
+      [] ->
+        empty_kanban_payload(generated_at, [])
+
+      projects ->
+        project_payloads = kanban_project_payloads(projects, timeout)
+
+        %{
+          generated_at: generated_at,
+          states: @kanban_states,
+          status: aggregate_kanban_status(project_payloads),
+          columns: aggregate_kanban_columns(project_payloads),
+          projects: project_payloads
+        }
     end
   end
 
@@ -92,6 +115,120 @@ defmodule SymphonyElixirWeb.Presenter do
   defp issue_status(_running, nil), do: "running"
   defp issue_status(nil, _retry), do: "retrying"
   defp issue_status(_running, _retry), do: "running"
+
+  defp kanban_project_payloads(projects, timeout) do
+    projects
+    |> Task.async_stream(&kanban_project_payload/1,
+      timeout: timeout,
+      on_timeout: :kill_task,
+      ordered: true,
+      max_concurrency: max(length(projects), 1)
+    )
+    |> Enum.zip(projects)
+    |> Enum.map(fn
+      {{:ok, payload}, _project} -> payload
+      {{:exit, _reason}, project} -> unavailable_kanban_project(project, :timeout)
+    end)
+  end
+
+  defp kanban_project_payload(project) do
+    case fetch_project_kanban_issues(project) do
+      {:ok, issues} ->
+        %{
+          project_id: project.id,
+          project_slug: Projects.project_slug(project),
+          status: "ok",
+          columns: build_kanban_columns(issues, project)
+        }
+
+      {:error, reason} ->
+        unavailable_kanban_project(project, reason)
+    end
+  end
+
+  defp fetch_project_kanban_issues(project) do
+    RuntimeContext.with_context(%{project_id: project.id, workflow_path: project.workflow_path}, fn ->
+      with {:ok, _settings} <- Config.settings() do
+        Tracker.fetch_issues_by_states(@kanban_states)
+      end
+    end)
+  rescue
+    error in [ArgumentError, RuntimeError] -> {:error, Exception.message(error)}
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
+  end
+
+  defp build_kanban_columns(issues, project) when is_list(issues) do
+    Enum.map(@kanban_states, fn state ->
+      state_issues =
+        issues
+        |> Enum.filter(&(normalize_state(Map.get(&1, :state)) == normalize_state(state)))
+        |> Enum.map(&kanban_issue_payload(&1, project))
+
+      %{state: state, count: length(state_issues), issues: state_issues}
+    end)
+  end
+
+  defp unavailable_kanban_project(project, reason) do
+    %{
+      project_id: project.id,
+      project_slug: Projects.project_slug(project),
+      status: "unavailable",
+      error: inspect_kanban_error(reason),
+      columns: empty_kanban_columns()
+    }
+  end
+
+  defp empty_kanban_payload(generated_at, projects) do
+    %{
+      generated_at: generated_at,
+      states: @kanban_states,
+      status: "unavailable",
+      columns: empty_kanban_columns(),
+      projects: projects
+    }
+  end
+
+  defp aggregate_kanban_status(project_payloads) do
+    if Enum.any?(project_payloads, &(&1.status == "ok")), do: "ok", else: "unavailable"
+  end
+
+  defp aggregate_kanban_columns(project_payloads) do
+    Enum.map(@kanban_states, fn state ->
+      issues =
+        project_payloads
+        |> Enum.flat_map(fn project ->
+          project.columns
+          |> Enum.find(%{issues: []}, &(&1.state == state))
+          |> Map.fetch!(:issues)
+        end)
+
+      %{state: state, count: length(issues), issues: issues}
+    end)
+  end
+
+  defp empty_kanban_columns do
+    Enum.map(@kanban_states, &%{state: &1, count: 0, issues: []})
+  end
+
+  defp kanban_issue_payload(issue, project) do
+    %{
+      id: Map.get(issue, :id),
+      issue_identifier: Map.get(issue, :identifier),
+      title: Map.get(issue, :title) || Map.get(issue, :identifier) || "Untitled issue",
+      url: Map.get(issue, :url),
+      priority: Map.get(issue, :priority),
+      labels: Map.get(issue, :labels, []),
+      updated_at: iso8601(Map.get(issue, :updated_at)),
+      project_id: project.id
+    }
+  end
+
+  defp normalize_state(state) when is_binary(state), do: state |> String.trim() |> String.downcase()
+  defp normalize_state(_state), do: ""
+
+  defp inspect_kanban_error(reason) when is_binary(reason), do: reason
+  defp inspect_kanban_error(reason), do: inspect(reason)
 
   defp project_payload(project) do
     %{

@@ -7,17 +7,21 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   alias SymphonyElixirWeb.{Endpoint, ObservabilityPubSub, Presenter}
   @runtime_tick_ms 1_000
+  @kanban_refresh_ms 15_000
 
   @impl true
   def mount(_params, _session, socket) do
     socket =
       socket
       |> assign(:payload, load_payload())
+      |> assign(:kanban, load_kanban())
+      |> assign(:kanban_refresh_ms, @kanban_refresh_ms)
       |> assign(:now, DateTime.utc_now())
 
     if connected?(socket) do
       :ok = ObservabilityPubSub.subscribe()
       schedule_runtime_tick()
+      schedule_kanban_refresh()
     end
 
     {:ok, socket}
@@ -34,6 +38,17 @@ defmodule SymphonyElixirWeb.DashboardLive do
     {:noreply,
      socket
      |> assign(:payload, load_payload())
+     |> assign(:kanban, load_kanban())
+     |> assign(:now, DateTime.utc_now())}
+  end
+
+  @impl true
+  def handle_info(:kanban_refresh, socket) do
+    schedule_kanban_refresh()
+
+    {:noreply,
+     socket
+     |> assign(:kanban, load_kanban())
      |> assign(:now, DateTime.utc_now())}
   end
 
@@ -104,6 +119,68 @@ defmodule SymphonyElixirWeb.DashboardLive do
             <p class="metric-value numeric"><%= format_runtime_seconds(total_runtime_seconds(@payload, @now)) %></p>
             <p class="metric-detail">Total Codex runtime across completed and active sessions.</p>
           </article>
+        </section>
+
+        <section class="section-card kanban-section" data-kanban-refresh-ms={@kanban_refresh_ms}>
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Linear Kanban Board</h2>
+              <p class="section-copy">
+                Backlog through Done, sourced from Linear and refreshed automatically every <%= div(@kanban_refresh_ms, 1_000) %>s.
+              </p>
+            </div>
+            <div class="kanban-meta">
+              <span class={state_badge_class(@kanban.status)}><%= @kanban.status %></span>
+              <span class="muted mono">Updated <%= @kanban.generated_at %></span>
+            </div>
+          </div>
+
+          <%= if kanban_project_warnings(@kanban) != [] do %>
+            <div class="kanban-warning">
+              <p>Some project boards could not be loaded:</p>
+              <ul>
+                <li :for={project <- kanban_project_warnings(@kanban)}>
+                  <span class="issue-id"><%= project.project_id %></span>: <%= project.error || project.status %>
+                </li>
+              </ul>
+            </div>
+          <% end %>
+
+          <div class="kanban-board">
+            <article :for={column <- @kanban.columns} class="kanban-column" data-state={column.state}>
+              <header class="kanban-column-header">
+                <h3><%= column.state %></h3>
+                <span class="kanban-count numeric"><%= column.count %></span>
+              </header>
+
+              <%= if column.issues == [] do %>
+                <p class="kanban-empty">No issues</p>
+              <% else %>
+                <div class="kanban-card-list">
+                  <a
+                    :for={issue <- column.issues}
+                    class="kanban-card"
+                    data-issue-id={issue.issue_identifier}
+                    href={issue.url || "#"}
+                    target={if issue.url, do: "_blank", else: false}
+                    rel={if issue.url, do: "noreferrer", else: false}
+                  >
+                    <span class="kanban-card-id"><%= issue.issue_identifier %></span>
+                    <strong class="kanban-card-title"><%= issue.title %></strong>
+                    <span class="kanban-card-meta">
+                      <%= issue.project_id %>
+                      <%= if issue.priority do %>
+                        · P<%= issue.priority %>
+                      <% end %>
+                    </span>
+                    <span :if={issue.labels != []} class="kanban-labels">
+                      <span :for={label <- issue.labels} class="kanban-label"><%= label %></span>
+                    </span>
+                  </a>
+                </div>
+              <% end %>
+            </article>
+          </div>
         </section>
 
         <%= if Map.get(@payload, :projects, []) != [] do %>
@@ -303,6 +380,10 @@ defmodule SymphonyElixirWeb.DashboardLive do
     Presenter.state_payload(snapshot_timeout_ms())
   end
 
+  defp load_kanban do
+    Presenter.kanban_payload(snapshot_timeout_ms())
+  end
+
   defp snapshot_timeout_ms do
     Endpoint.config(:snapshot_timeout_ms) || 15_000
   end
@@ -355,6 +436,12 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   defp format_int(_value), do: "n/a"
 
+  defp kanban_project_warnings(%{projects: projects}) when is_list(projects) do
+    Enum.reject(projects, &(&1.status == "ok"))
+  end
+
+  defp kanban_project_warnings(_kanban), do: []
+
   defp state_badge_class(state) do
     base = "state-badge"
     normalized = state |> to_string() |> String.downcase()
@@ -369,6 +456,10 @@ defmodule SymphonyElixirWeb.DashboardLive do
 
   defp schedule_runtime_tick do
     Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
+  end
+
+  defp schedule_kanban_refresh do
+    Process.send_after(self(), :kanban_refresh, @kanban_refresh_ms)
   end
 
   defp pretty_value(nil), do: "n/a"
